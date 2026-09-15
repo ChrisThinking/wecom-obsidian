@@ -370,4 +370,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # 单篇转换墙钟上限（设置页「单篇转换超时」）：见 _common.run_guarded
+    _common.run_guarded(main)

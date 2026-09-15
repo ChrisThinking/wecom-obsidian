@@ -3,6 +3,8 @@
   "webp_to_png": true,
   "webp_to_png_note": "P6 检查：仅 xhs_convert.py 经 _common 读取本开关；wechat_read_v3.py 对 webp 恒转 png（未读配置，行为不一致，历史遗留）。转 png 保证兼容但体积增大。默认保留 true，是否改 false / 统一两脚本 → M1 待确认，不删除。",
   "convert": {
+    "timeout_sec": 180,
+    "timeout_note": "单篇转换的墙钟上限（秒）。由设置页「单篇转换超时」物化；scripts/convert/*.py 的入口经 _common.run_guarded() 兜底，超时打印 CONVERT_TIMEOUT 并以 2 退出（不产出成功标记）。",
     "staging_base": "staging/converted",
     "wechat_output_base": "staging/converted/微信文章",
     "xhs_output_base": "staging/converted/小红书笔记",

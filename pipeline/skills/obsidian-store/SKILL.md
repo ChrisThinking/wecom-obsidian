@@ -35,9 +35,10 @@ Note Package（formatted/<platform>/<name>/）
 
 ## 自检清单
 ```bash
-python3 tests/m0_scenarios.py     # S1 原子+记账 / S2 去重 / S3 失败可重试
+python3 -m unittest discover -s pipeline/tests -t pipeline/tests -v
+#   （test_store.py：落点/快照/同名冲突/去重存在性/并发；test_path_rules.py：规则解析）
 OBS_VAULT_ROOT="$PWD/tests/tmp_vault" python3 scripts/manage/store.py <formatted包目录>
-# 布局检查：<vault>/01_文章分享/<年份>/<月份>/<name>/{<name>.md, assets/, source_page.html}
+# 布局检查：<vault>/01_文章分享/<年份>/<月份>/<name>/<name>.md（同名冲突为 <name>-2/<name>-2.md）
 ```
 
 ## 边界 / 引用

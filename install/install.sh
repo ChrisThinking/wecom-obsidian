@@ -3,13 +3,19 @@
 # dsh-wecom-obsidian 一键安装 / 重装
 # ----------------------------------------------------------------------------
 # 重装 DSH 之后，只要插件包还在（或重新拿到这个目录），跑这一条命令即可恢复
-# 「企微机器人收藏网址 → Obsidian」的完整能力：
+# 插件能力（长连接 SDK / Profile 登记 / 收藏 Agent 预设 / 运行时目录）：
 #
 #   bash install/install.sh
+#
+# 注意：本脚本**不负责**恢复你的配置 —— Bot 凭证与 Vault 路径在
+# ${DSH_HOME}/settings.yaml（DSH 设置服务管理），运行账本在工作区里。
+# DSH_HOME 不变时它们自然还在；DSH_HOME 变了请先自行备份/迁移这两处。
+# DSH_HOME 的解析顺序：显式 $DSH_HOME > 正在运行的 dsh 进程环境 > ~/.dsh。
 #
 # 脚本做的事（全部幂等，可反复执行）：
 #   1. 装好插件包自身的 Node 依赖（企微长连接 SDK）；
 #   2. 把插件注册进 DSH Profile（依赖 + bundle 层），DSH 下一轮启动即加载；
+#      并**校验** Profile 的 node_modules 里真的能解析到本包，否则以非 0 退出；
 #   3. 安装收藏专用 Agent 预设到 ${DSH_HOME}/.agent-presets/，并把插件里的
 #      三 Skill 路径写进去，使收藏会话天然具备 acquire/format/store 能力；
 #   4. 建立运行时数据目录；
@@ -26,24 +32,68 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGIN_DIR="$REPO_ROOT"
-[ -f "$PLUGIN_DIR/package.json" ] || die "找不到 $PLUGIN_DIR/package.json —— 请从仓库内运行本脚本"
-DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-PROFILE="${DSH_PROFILE:-web}"
-PROFILE_DIR="$DSH_HOME/profiles/$PROFILE"
-PACKAGE_NAME="$(node -p "require('$PLUGIN_DIR/package.json').name" 2>/dev/null || echo dsh-wecom-obsidian)"
-PRESET_ID="wecom-obsidian-collector"
-PRESET_DIR="$DSH_HOME/.agent-presets/$PRESET_ID"
-DATA_DIR="$DSH_HOME/wecom-obsidian"
-STAMP="$(date +%Y%m%d-%H%M%S)"
 
 say()  { printf '\033[1;36m[install]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
+[ -f "$PLUGIN_DIR/package.json" ] || die "找不到 $PLUGIN_DIR/package.json —— 请从仓库内运行本脚本"
+
+PROFILE="${DSH_PROFILE:-web}"
+PACKAGE_NAME="$(node -p "require('$PLUGIN_DIR/package.json').name" 2>/dev/null || echo dsh-wecom-obsidian)"
+
+# ── 解析 DSH_HOME ───────────────────────────────────────────────────────────
+# 优先级：显式 $DSH_HOME > 正在运行的 dsh 进程环境 > ~/.dsh。
+#
+# 为什么不能只默认 ~/.dsh：DSH 允许把 DSH_HOME 指到任意目录（本机就是
+# 一个工作区目录），只认 ~/.dsh 会去找一个根本不存在的 profile，或者更糟 ——
+# 在错误的位置写 preset 和依赖登记，而插件永远不会被加载。
+detect_dsh_home() {
+  local candidate
+  if [ -n "${DSH_HOME:-}" ]; then
+    printf '%s\n' "$DSH_HOME"
+    return 0
+  fi
+  local pid env_home
+  if command -v pgrep >/dev/null 2>&1 && command -v ps >/dev/null 2>&1; then
+    pid="$(pgrep -f 'dsh/lib/bin.js' 2>/dev/null | head -1 || true)"
+    if [ -n "${pid:-}" ]; then
+      env_home="$(ps eww -p "$pid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^DSH_HOME=//p' | head -1 || true)"
+      if [ -n "${env_home:-}" ] && [ -d "$env_home" ]; then
+        printf '%s\n' "$env_home"
+        return 0
+      fi
+    fi
+  fi
+  printf '%s\n' "$HOME/.dsh"
+}
+
+if [ -n "${DSH_HOME:-}" ]; then
+  DSH_HOME="$DSH_HOME"
+else
+  DSH_HOME="$(detect_dsh_home)"
+  [ "$DSH_HOME" = "$HOME/.dsh" ] || say "自动识别到 DSH_HOME：$DSH_HOME"
+fi
+PROFILE_DIR="$DSH_HOME/profiles/$PROFILE"
+PRESET_ID="wecom-obsidian-collector"
+PRESET_DIR="$DSH_HOME/.agent-presets/$PRESET_ID"
+DATA_DIR="$DSH_HOME/wecom-obsidian"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+
+# 记录「插件到底有没有被登记成功」，供结尾的完成/未完成判定使用。
+PROFILE_LINKED=0
+RUNTIME_WARN=0
+
 # ── 0. 环境检查 ─────────────────────────────────────────────────────────────
 command -v node >/dev/null 2>&1 || die "找不到 node"
 command -v npm  >/dev/null 2>&1 || die "找不到 npm"
-[ -d "$PROFILE_DIR" ] || die "找不到 DSH Profile 目录：$PROFILE_DIR（用 DSH_HOME / DSH_PROFILE 覆盖）"
+if [ ! -d "$PROFILE_DIR" ]; then
+  die "找不到 DSH Profile 目录：$PROFILE_DIR
+       DSH_HOME=$DSH_HOME 可能是错的（本机实际 DSH_HOME 见正在运行的 dsh 进程）。
+       请显式指定后重跑，例如：
+         DSH_HOME=/path/to/dsh-home bash install/install.sh
+       可用 'ps eww -p \$(pgrep -f dsh/lib/bin.js | head -1)' 查当前 DSH_HOME。"
+fi
 say "插件目录：$PLUGIN_DIR"
 say "DSH_HOME：$DSH_HOME   Profile：$PROFILE"
 
@@ -194,19 +244,24 @@ fi
 #      bundle 补丁和 profile 补丁各插一次，插件 apply 跑两遍，第二次撞上
 #      「settings namespace 已注册」直接把整棵插件树打挂（DSH 起不来）。
 #      所以本脚本只登记 bundle；composition 行由插件包自己的补丁提供。
+#
+# 用数组而不是拼接字符串：`PNPM="corepack pnpm"` 再 `"$PNPM" add` 会把
+# 「corepack pnpm」当成**一个命令名**去执行（实测 `command not found`），
+# 于是 pnpm 分支永远失败、却因为 `|| warn` 被吞掉，最后照样打印「安装完成」。
+PNPM=()
 if command -v pnpm >/dev/null 2>&1; then
-  PNPM=pnpm
+  PNPM=(pnpm)
 elif command -v corepack >/dev/null 2>&1; then
   # corepack 是 Node 自带的 pnpm/yarn 代理，很多环境用它而非全局 pnpm
-  PNPM="corepack pnpm"
-else
-  PNPM=""
+  PNPM=(corepack pnpm)
 fi
 
-if [ -n "$PNPM" ]; then
+if [ "${#PNPM[@]}" -gt 0 ]; then
   say "把插件登记为 Profile 依赖（link:$PLUGIN_DIR）…"
-  ( cd "$PROFILE_DIR" && "$PNPM" add "link:$PLUGIN_DIR" --silent ) \
+  ( cd "$PROFILE_DIR" && "${PNPM[@]}" add "link:$PLUGIN_DIR" --silent ) \
     || warn "pnpm add 失败；稍后由下面的依赖表兜底写入"
+else
+  warn "本机没有 pnpm / corepack，跳过 pnpm add；依赖表仍会写入，但需要你手工执行一次 pnpm install"
 fi
 
 # 依赖表 + bundle 层（直接改 package.json，不依赖 pnpm 是否可用）。
@@ -268,6 +323,25 @@ if (!pkg.dependencies[name] || !String(pkg.dependencies[name]).startsWith('link:
 fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
 console.log('dependency', name, '=', pkg.dependencies[name]);
 NODE
+
+# 校验「插件是否真的会被 DSH 加载」：光写依赖表不够，Profile 的 node_modules
+# 里必须真的能解析到本包（否则下一次启动直接报模块解析失败）。
+# 失败时再补一次 pnpm install，仍失败就明确标记「安装未完成」，不再打印完成。
+if [ -e "$PROFILE_DIR/node_modules/$PACKAGE_NAME/package.json" ]; then
+  PROFILE_LINKED=1
+elif [ "${#PNPM[@]}" -gt 0 ]; then
+  say "Profile 里还没有插件链接，补一次 pnpm install…"
+  ( cd "$PROFILE_DIR" && "${PNPM[@]}" install --silent ) || warn "pnpm install 失败"
+  if [ -e "$PROFILE_DIR/node_modules/$PACKAGE_NAME/package.json" ]; then
+    PROFILE_LINKED=1
+  fi
+fi
+if [ "$PROFILE_LINKED" = "1" ]; then
+  say "插件已在 Profile node_modules 中可解析：$PROFILE_DIR/node_modules/$PACKAGE_NAME"
+else
+  warn "插件尚未被登记进 Profile：$PROFILE_DIR/node_modules/$PACKAGE_NAME 不存在"
+  warn "请手工执行：cd \"$PROFILE_DIR\" && pnpm install"
+fi
 
 # ── 3. 安装收藏 Agent 预设 ─────────────────────────────────────────────────
 say "安装收藏 Agent 预设 → $PRESET_DIR"
@@ -348,7 +422,23 @@ NODE
   fi
 fi
 
-# ── 6. 完成 ────────────────────────────────────────────────────────────────
+# ── 6. 完成 / 未完成 ───────────────────────────────────────────────────────
+# 只有「插件真的被登记进 Profile」才算完成。依赖登记失败却照样打印
+# 「安装完成」是真实踩过的坑：用户以为装好了，重启后插件根本没加载。
+if [ "$PROFILE_LINKED" != "1" ]; then
+  cat <<EOF
+
+$(warn "安装未完成：插件没有被登记进 Profile。")
+  Profile：$PROFILE_DIR
+  依赖表已写入，但 node_modules 里没有 $PACKAGE_NAME。
+  请修复上面的报错后重跑：
+      cd "$PROFILE_DIR" && pnpm install
+      DSH_HOME="$DSH_HOME" bash "$SCRIPT_DIR/install.sh"
+
+EOF
+  exit 1
+fi
+
 cat <<EOF
 
 $(say "安装完成。")
@@ -364,6 +454,12 @@ $(say "安装完成。")
        · Obsidian 导入地址（Vault 绝对路径）
        · 存储路径规则（默认 {top}/{YYYY}/{MM}/{name}，即「年/月」）
      保存后桥接插件会自动建立长连接，无需再改任何文件。
+
+关于「重装是否恢复配置」——本脚本只负责插件本体与预设，**不碰**你的配置：
+  · Bot 凭证 / Vault 路径保存在 $DSH_HOME/settings.yaml（DSH 设置服务管理）；
+  · 运行账本/工作区在 $DATA_DIR/。
+  只要 DSH_HOME 不变，重跑本脚本不会丢它们；但如果 DSH_HOME 变了（或 settings.yaml
+  被删），本脚本**无法**替你恢复凭证与账本 —— 请先备份这两处再迁移。
 
 自检命令：
   # 看机器人是否在线

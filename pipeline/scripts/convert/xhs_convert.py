@@ -211,4 +211,5 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    # 单篇转换墙钟上限（设置页「单篇转换超时」）：见 _common.run_guarded
+    sys.exit(_common.run_guarded(main))

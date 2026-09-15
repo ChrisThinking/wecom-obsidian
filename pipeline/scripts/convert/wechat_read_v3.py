@@ -493,4 +493,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # 单篇转换墙钟上限（设置页「单篇转换超时」）：见 _common.run_guarded
+    # 退出码仍为 0（ACQUIRE 按 stdout 成功标记判定），只加了整篇超时兜底。
+    _common.run_guarded(main)

@@ -29,7 +29,7 @@
 | **自动去重** | 同一 URL 只入库一次，重复收藏直接回「已收藏过」并给出原路径 |
 | **多机器人并存** | 一个插件挂多个企微账号，各自独立长连接与会话 |
 | **图形化配置** | 全部配置在 DSH 设置页完成，改完即时生效，无需改文件、无需重启 |
-| **可重装** | 重装 DSH 后重跑一次安装脚本即恢复 |
+| **可重装** | 重跑安装脚本即恢复插件本体（依赖 / Profile 登记 / 预设 / 运行时目录）；Bot 凭证与 Vault 路径在 `${DSH_HOME}/settings.yaml`、账本在数据目录里 —— DSH_HOME 不变就还在（安装脚本**不碰**它们），DSH_HOME 变了需自行备份迁移 |
 
 ---
 
@@ -59,10 +59,16 @@ bash install/install.sh
 
 1. 装插件自身的 Node 依赖（企微长连接 SDK；优先离线复制，否则 `npm install`）；
 2. 把宿主的 `@deepseek-ai/cordis`、`@deepseek-ai/schemastery` 链进来（必须与宿主同一实例）；
-3. 在 Profile 里登记 link 依赖 + `dsh.profile.bundles`；
+3. 在 Profile 里登记 link 依赖 + `dsh.profile.bundles`，并**校验** Profile 的
+   `node_modules` 里真的能解析到本包（校验不过就以非 0 退出，不会假报「安装完成」）；
 4. 安装收藏专用 Agent 预设到 `${DSH_HOME}/.agent-presets/`；
 5. 建运行时数据目录，并按需自动安装 `beautifulsoup4`；
 6. 打印一份**依赖预检**结果。
+
+> **DSH_HOME 怎么定**：显式 `DSH_HOME` 环境变量 > 正在运行的 dsh 进程的环境 > `~/.dsh`。
+> 如果你的 DSH_HOME 不是 `~/.dsh`（例如指向某个工作区目录），请显式传入：
+> `DSH_HOME=/path/to/dsh-home bash install/install.sh`。
+> 脚本只写这个 DSH_HOME 下的 Profile / preset / 数据目录，不会创建第二份配置。
 
 然后重启 DSH 使 composition 生效：
 
@@ -81,13 +87,18 @@ dsh plugin --profile web add github:ChrisThinking/wecom-obsidian
 `dsh plugin` 是 pnpm 的转发器；它会把仓库装进 Profile 的 `node_modules`，并因为本包声明了
 `dsh.bundle` 而自动加入 `dsh.profile.bundles`。
 
-装完后仍需生成收藏预设（预设要落到 `.agent-presets/`），执行一次 `install.sh` 的第 3~5 步即可：
+装完后仍需生成收藏预设（预设要落到 `.agent-presets/`）：先用 node 找出刚装好的插件目录，
+再用它跑一次 `install.sh`（脚本幂等，已有的依赖会跳过）。**DSH_HOME 必须与 DSH 实际使用的一致**：
 
 ```bash
-bash "$(dsh plugin --profile web list --depth 0 >/dev/null 2>&1; echo)"
-# 简便做法：仍然 clone 一份仓库，用它生成预设
-bash install/install.sh
+DSH_HOME=/path/to/dsh-home          # 不是 ~/.dsh 时必须显式指定
+PLUGIN_DIR="$(dirname "$(node -e "console.log(require.resolve('dsh-wecom-obsidian/package.json',{paths:['$DSH_HOME/profiles/web']}))")")"
+DSH_HOME="$DSH_HOME" bash "$PLUGIN_DIR/install/install.sh"
 ```
+
+> `dsh plugin list` 的输出格式随版本变化，**不要**指望用它拼出插件路径；
+> 上面的 `require.resolve(...)` 直接问 Node 要真实路径，稳定得多。
+> 最省事的做法仍然是 clone 一份仓库，然后 `bash install/install.sh`。
 </details>
 
 ### 配置
@@ -242,8 +253,8 @@ bash install/uninstall.sh --purge  # 连运行时数据一起删
 ## 开发
 
 ```bash
-npm run check     # 语法检查（JS + 客户端 bundle）
-bash install/install.sh   # 重装到本机 Profile
+npm run check              # 全部测试（JS 单测/设置服务回归 + Python 流水线回归）
+bash install/install.sh    # 重装到本机 Profile（非 ~/.dsh 时先 export DSH_HOME=…）
 ```
 
 仓库根就是 npm 包根（`package.json` 在根），因此：

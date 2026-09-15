@@ -15,8 +15,55 @@ convert 阶段共享工具
 """
 import json
 import os
+import threading
 
 CFG_REL = os.path.join('config', 'pipeline.json')
+
+#: 单篇转换的默认墙钟上限（秒）。设置页「单篇转换超时」会物化到
+#: `config/pipeline.json → convert.timeout_sec`，这里只是兜底默认值。
+DEFAULT_CONVERT_TIMEOUT_SEC = 180
+
+
+def convert_timeout(cfg=None):
+    """读取单篇转换的墙钟上限（秒）。
+
+    非法/非正数一律回落到默认值：设置写错不应让转换「立刻超时」。
+    """
+    cfg = cfg if cfg is not None else load_pipeline()
+    conv = cfg.get('convert') if isinstance(cfg, dict) else None
+    raw = (conv or {}).get('timeout_sec') if isinstance(conv, dict) else None
+    try:
+        sec = float(raw)
+    except (TypeError, ValueError):
+        return float(DEFAULT_CONVERT_TIMEOUT_SEC)
+    return sec if sec > 0 else float(DEFAULT_CONVERT_TIMEOUT_SEC)
+
+
+def run_guarded(main_fn, timeout=None):
+    """执行 `main_fn()`，超过上限就打印 CONVERT_TIMEOUT 并以 2 退出。
+
+    为什么需要它：转换脚本由收藏会话里的 agent 以 bash 调用，宿主无法给单个转换
+    进程设超时（宿主只有整条链路的回合上限）。设置页既然提供「单篇转换超时」，
+    就必须在脚本入口真的生效 —— 否则设置页承诺的行为与执行不一致。
+
+    用 `threading.Timer` + `os._exit`：各脚本自带的 socket 超时只覆盖单次请求，
+    这里兜的是**整篇**（含重试/多图下载）的墙钟。超时退出不打印成功标记，
+    因此 ACQUIRE 的成功判定不会误判。
+    """
+    limit = float(timeout) if timeout else convert_timeout()
+
+    def _abort():
+        print('CONVERT_TIMEOUT 单篇转换超过 %.0f 秒，已中止（设置页「单篇转换超时」）'
+              % limit, flush=True)
+        os._exit(2)
+
+    timer = threading.Timer(limit, _abort)
+    timer.daemon = True
+    timer.start()
+    try:
+        return main_fn()
+    finally:
+        timer.cancel()
 
 
 def find_workspace_root(start=None):

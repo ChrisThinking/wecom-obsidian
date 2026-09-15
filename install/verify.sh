@@ -81,11 +81,16 @@ fi
 
 # ── 3. 个人化路径 ───────────────────────────────────────────────────────────
 head_ "3. 个人化路径残留"
+# 例外：`package-lock.json` 里 npm 自动记录的 **extraneous 符号链接目标**
+# （形如 `"../../…/node_modules/@deepseek-ai/cordis"`）。它是本机 node_modules
+# 的真实路径，任何机器上跑一次 `npm install` 都会重新生成，无法靠提交修掉；
+# 也正因为是自动生成键，不是「作者写进源码的路径」。其余任何位置出现绝对路径仍然报错。
 HITS="$(grep -rn "/Users/[A-Za-z0-9._-]\+\|/Volumes/[A-Za-z0-9._-]\+" \
           --include='*.js' --include='*.py' --include='*.sh' --include='*.mjs' \
           --include='*.json' --include='*.yml' . 2>/dev/null \
         | grep -v '^./node_modules/' | grep -v '^./.git/' \
-        | grep -v '^./install/verify.sh:' || true)"
+        | grep -v '^./install/verify.sh:' \
+        | grep -v '^./package-lock\.json:.*\.\./.*node_modules/' || true)"
 if [ -z "$HITS" ]; then
   ok "源码无作者机器绝对路径"
 else
@@ -119,10 +124,14 @@ done
 
 PY_BAD=0
 if command -v python3 >/dev/null 2>&1; then
+  # 用 compile() 显式检查语法，**不写字节码**：
+  # `python3 -m py_compile` 会把 .pyc 写进用户缓存目录（如 ~/Library/Caches/…），
+  # 在沙箱 / 只读 HOME 环境下必然失败，于是所有文件都被误报成语法错误。
   while IFS= read -r f; do
-    python3 -m py_compile "$f" 2>/dev/null || { bad "Python 语法: $f"; PY_BAD=1; }
+    python3 -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$f" 2>/dev/null \
+      || { bad "Python 语法: $f"; PY_BAD=1; }
   done < <(find pipeline -name '*.py' 2>/dev/null)
-  [ "$PY_BAD" = "0" ] && ok "Python 全部可编译"
+  [ "$PY_BAD" = "0" ] && ok "Python 全部可解析"
   find pipeline -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 else
   info "跳过 Python 检查（无 python3）"
@@ -135,13 +144,15 @@ for f in install/*.sh pipeline/scripts/convert/install-deps.sh; do
 done
 [ "$SH_BAD" = "0" ] && ok "shell 脚本全部可解析"
 
-# ── 5b. 单元测试（纯函数回归：路径解析 / 覆盖表重排 / 包声明）───────────────
-head_ "5b. 单元测试"
-if node --test tests/unit.test.mjs >/tmp/wecom-verify-test.log 2>&1; then
-  pass_line="$(grep -E '^. pass ' /tmp/wecom-verify-test.log | tail -1 | tr -d ' ')"
-  ok "单元测试全部通过（${pass_line:-pass}）"
+# ── 5b. 测试套件（JS 单测/设置服务回归 + Python 流水线回归）─────────────────
+# 发布前的最后一道闸：`npm test` 跑的就是 CI 那一套，必须全绿。
+head_ "5b. 测试套件"
+if npm test >/tmp/wecom-verify-test.log 2>&1; then
+  js_line="$(grep -E '^. pass ' /tmp/wecom-verify-test.log | tail -1 | tr -d ' ')"
+  py_line="$(grep -E '^OK' /tmp/wecom-verify-test.log | tail -1 | tr -d ' ')"
+  ok "测试全部通过（JS ${js_line:-pass} · Python ${py_line:-OK}）"
 else
-  bad "单元测试失败，详见 /tmp/wecom-verify-test.log"
+  bad "测试失败，详见 /tmp/wecom-verify-test.log"
   tail -20 /tmp/wecom-verify-test.log | sed 's/^/      /'
 fi
 

@@ -450,30 +450,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 删除某台机器人后，重排覆盖表的键，使其与新的 `bots` 下标继续对齐。
-     *
-     * `botOverrides` 按**下标字符串**存键，所以增删机器人时不同步重排，覆盖就会
-     * 整体错位：删掉第 0 个之后，原本属于第 1 个的覆盖（**含密钥与白名单策略**）
-     * 会套到新的第 0 个身上 —— 等于把凭证给了另一台机器人。
-     *
-     * 纯函数，便于单测。
-     *
-     * @param {object|undefined} overrides - 现有覆盖表（键为下标字符串）。
-     * @param {number} removedIndex - 被删除的下标。
-     * @returns {object} 重排后的覆盖表。
-     */
-    function reindexOverridesAfterRemove(overrides, removedIndex) {
-      const src = (overrides && typeof overrides === 'object') ? overrides : {};
-      const next = {};
-      for (const [key, val] of Object.entries(src)) {
-        const i = Number(key);
-        if (!Number.isInteger(i) || i === removedIndex) continue;
-        next[String(i > removedIndex ? i - 1 : i)] = val;
-      }
-      return next;
-    }
-
-    /**
      * 把「配置页草稿」合并进「已保存的机器人配置」。
      *
      * 配置页只编辑三项（名称 / Bot ID / Secret），其余字段：
@@ -731,40 +707,39 @@ window.__ModuleLoader__.load({
       }, [scalars]);
 
       /**
-       * 新增一台机器人：**立即落盘**一条带默认值的配置，再让用户填写三项。
+       * 追加一条机器人结构变更**意图**。
        *
-       * 之所以立刻写入而不是只加个空草稿：这样"新增"和"编辑"走同一条路径
-       * （卡片上都是「保存应用」），启用/停用也能直接生效，不用等保存。
+       * 为什么不在这里直接改 `bots[]`：
+       *   1. 浏览器读数已脱敏（`secret` 是 `role('secret')`，永不回传），用脱敏值
+       *      整体写回会抹掉其余机器人的 Secret；
+       *   2. DSH 的 path mutation 不能深入数组（`{path:['bots','0']}` 会把数组换成
+       *      对象，随即被 schema 拒绝）。
+       * 所以只提交 `{op, index, nonce}`，由宿主拿未脱敏的原始段执行并写回。
+       *
+       * @param {string} op - `add` / `remove`。
+       * @param {number} index - `remove` 的目标下标（`add` 由宿主按当前长度决定）。
+       * @returns {Promise<void>} 写入完成后 resolve。
        */
-      /**
-       * 重排 `botOverrides` 的键，使其与 `bots` 下标继续对齐。
-       *
-       * 覆盖表是**按下标字符串**存的（`'0'`、`'1'`…），所以增删机器人时如果不
-       * 同步重排，覆盖会整体错位：删掉第 0 个之后，原本属于第 1 个的覆盖
-       * （**含密钥与白名单策略**）会套到新的第 0 个身上 —— 等于把凭证给了另一台
-       * 机器人。这是本次修复的核心。
-       *
-       * @param {number} removedIndex - 被删除的下标。
-       * @returns {object} 重排后的覆盖表。
-       */
-      const overridesAfterRemove = useCallback(
-        (removedIndex) => reindexOverridesAfterRemove(value && value.botOverrides, removedIndex),
-        [value],
-      );
+      const requestBotOp = useCallback(async (op, index) => {
+        const queued = Array.isArray(value && value.botOps) ? value.botOps : [];
+        const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        await props.wecomScope.mutate([
+          { op: 'set', path: ['botOps'], value: [...queued, { op, index, nonce }] },
+        ]);
+      }, [value, props.wecomScope]);
 
+      /**
+       * 新增一台机器人：向宿主提交一条意图，宿主追加带默认值的新机器人。
+       *
+       * 不在浏览器里拼默认值：多机器人下标由宿主按写入那一刻的列表长度决定，
+       * 否则「快速点两次新增」会用同一个下标互相覆盖。
+       */
       const addBot = useCallback(async () => {
         const index = valueBots.length;
         setSavingBot(index);
         setBotMessage(null);
         try {
-          // 同时**清掉**该下标的陈旧覆盖：否则「删掉又新增」会继承上一个机器人的
-          // 凭证/策略（同样是错位问题的另一种表现）。
-          const overrides = { ...((value && value.botOverrides) || EMPTY) };
-          delete overrides[String(index)];
-          await props.wecomScope.mutate([
-            { op: 'set', path: ['bots', String(index)], value: defaultBot(index + 1) },
-            { op: 'set', path: ['botOverrides'], value: overrides },
-          ]);
+          await requestBotOp('add', index);
           refreshNow();
           setBotMessage({ kind: 'ok', text: `已新增机器人${index + 1}：填好「名称 / Bot ID / Secret」后点该卡片的「保存应用」。` });
         } catch (error) {
@@ -772,18 +747,20 @@ window.__ModuleLoader__.load({
         } finally {
           setSavingBot(null);
         }
-      }, [valueBots.length, value, props.wecomScope, props.wecomController, refreshNow]);
+      }, [valueBots.length, requestBotOp, refreshNow]);
 
-      /** 删除一台机器人：重写 bots，并**同步重排覆盖表**，避免凭证错位。 */
+      /**
+       * 删除一台机器人：同样只提交意图。
+       *
+       * 结构变更（缩短 `bots[]` + 重排 `botOverrides[]` 下标）必须由宿主在未脱敏
+       * 数据上完成 —— 浏览器侧无论怎么写都会丢掉其余机器人的 Secret。
+       */
       const removeBot = useCallback(async (index) => {
-        const nextBots = valueBots.filter((_, i) => i !== index);
         setSavingBot(index);
         setBotMessage(null);
         try {
-          await props.wecomScope.mutate([
-            { op: 'set', path: ['bots'], value: nextBots },
-            { op: 'set', path: ['botOverrides'], value: overridesAfterRemove(index) },
-          ]);
+          await requestBotOp('remove', index);
+          // 结构变了，下标会重排，各卡片的未落盘编辑不能再跟着旧下标走。
           setBotEdits({});
           refreshNow();
           setBotMessage({ kind: 'ok', text: '已删除并应用。' });
@@ -792,7 +769,7 @@ window.__ModuleLoader__.load({
         } finally {
           setSavingBot(null);
         }
-      }, [valueBots, value, props.wecomScope, props.wecomController, refreshNow, overridesAfterRemove]);
+      }, [requestBotOp, refreshNow]);
 
       /**
        * 保存「路径规则 / 流水线」这一组标量设置。
@@ -1192,7 +1169,7 @@ window.__ModuleLoader__.load({
     // 不参与运行时逻辑，仅为「让静默出错的函数能被测试盯住」而存在
     // （覆盖表错位、路径解析这类问题不会抛错，只会写错位置）。
     try {
-      globalThis.__wecomObsidianInternals = { reindexOverridesAfterRemove, mergeBotEdit, defaultBot };
+      globalThis.__wecomObsidianInternals = { mergeBotEdit, defaultBot };
     } catch { /* 无 globalThis 的环境跳过 */ }
 
     return { apply, inject };

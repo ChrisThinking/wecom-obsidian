@@ -7,14 +7,20 @@
  *
  *   1. `resolveInboxDir` —— 媒体落点。历史上相对路径会落到 DSH 进程 cwd，
  *      `{top}` 会生成名为 `{top}` 的字面目录。
- *   2. `reindexOverridesAfterRemove` —— 覆盖表按下标存键，删除机器人后不重排
- *      会让**密钥/白名单错位到别的机器人**。
- *   3. `resolveRelDir`（Python 侧）—— 由 `pipeline/scripts/tests/test_path_rules.py` 覆盖。
- *   4. `package-lock.json` —— 依赖版本可复现性。缺 lock 时 `^` 区间会在 clone 后
+ *   2. `applyBotOp` / `reindexOverridesAfterRemove` —— 机器人增删。浏览器读数
+ *      已脱敏且无法深写数组，所以结构变更只能在宿主侧做（见 `lib/bot-ops.js`）；
+ *      覆盖表按下标存键，删除后不重排会让**密钥/白名单错位到别的机器人**。
+ *   3. `defaultBotConfig` —— 与客户端 `defaultBot` 必须同形（会话 id 派生的
+ *      唯一事实源），否则「新增机器人」两边算出的 sessionId 不一致。
+ *   4. 路径规则（FORMAT/STORE 的落点与快照）—— 由 `pipeline/tests/` 下的
+ *      Python 测试覆盖（`test_path_rules.py` / `test_store.py`）。
+ *   5. `package-lock.json` —— 依赖版本可复现性。缺 lock 时 `^` 区间会在 clone 后
  *      解析到更新的版本，症状是「本机正常、别人装完就报错」，同样属于静默出错。
  *
+ * 设置服务的真实行为（数组深路径写入被拒、读数脱敏、replace 保密钥）由
+ * `tests/settings-service.test.mjs` 对着真实 `SettingsProvider` 覆盖。
+ *
  * 用法：
- *   node --test pipeline/tests/*.test.mjs      # 或
  *   node --test tests/
  */
 import { test } from 'node:test';
@@ -28,12 +34,20 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(HERE);
 const require = createRequire(import.meta.url);
 
-const workspaceSrc = fs.readFileSync(path.join(ROOT, 'lib', 'workspace.js'), 'utf8');
 const clientSrc = fs.readFileSync(path.join(ROOT, 'client', 'client.js'), 'utf8');
 
 // 直接导入真实模块（而不是用正则从源码里抠函数体 —— 那个做法会被正则字面量里的
 // 花括号骗到）。resolveInboxDir 是 lib/workspace.js 的具名导出。
-const { resolveInboxDir } = await import(path.join(ROOT, 'lib', 'workspace.js'));
+const { resolveInboxDir, storeSection, pipelineConfig } = await import(path.join(ROOT, 'lib', 'workspace.js'));
+
+// 机器人结构变更逻辑是宿主侧纯模块，直接 import 真实实现。
+const {
+  reindexOverridesAfterRemove,
+  applyBotOp,
+  applyBotOps,
+  defaultBotConfig,
+  slugOf,
+} = await import(path.join(ROOT, 'lib', 'bot-ops.js'));
 
 // 客户端 bundle 不是模块：用最小 React 桩 + ModuleLoader 桩把它跑起来，
 // 它会把内部纯函数挂到 globalThis.__wecomObsidianInternals 供这里断言。
@@ -61,7 +75,8 @@ const loadClientBundle = async () => {
   assert.ok(internals, 'client.js 未暴露 __wecomObsidianInternals 测试接缝');
   return internals;
 };
-const { reindexOverridesAfterRemove } = await loadClientBundle();
+const internals = await loadClientBundle();
+const { defaultBot: clientDefaultBot } = internals;
 
 const WORKSPACE = '/tmp/test-ws/workspace';
 const VAULT = '/tmp/test-vault';
@@ -152,6 +167,98 @@ test('reindexOverridesAfterRemove：空/非法输入安全', () => {
   assert.deepEqual(reindexOverridesAfterRemove({}, 3), {});
   // 非数字键（历史脏数据）应被丢弃而不是错位
   assert.deepEqual(reindexOverridesAfterRemove({ x: { a: 1 }, 0: { b: 2 } }, 5), { 0: { b: 2 } });
+});
+
+test('applyBotOp：删除中间项时密钥随机器人正确重排（不错位、不丢失）', () => {
+  const state = {
+    bots: [{ label: 'A' }, { label: 'B' }, { label: 'C' }],
+    botOverrides: {
+      0: { botId: 'BOT0', secret: 'S0' },
+      1: { botId: 'BOT1', secret: 'S1' },
+      2: { botId: 'BOT2', secret: 'S2' },
+    },
+  };
+  const next = applyBotOp(state, 'remove', 0);
+  assert.equal(next.bots.length, 2);
+  assert.deepEqual(next.bots.map((b) => b.label), ['B', 'C']);
+  assert.equal(next.botOverrides['0'].secret, 'S1', 'B 的密钥必须跟着 B 走到下标 0');
+  assert.equal(next.botOverrides['1'].secret, 'S2');
+  assert.equal(next.botOverrides['2'], undefined, '越界的陈旧覆盖必须被删除');
+  // 原状态不能被就地修改
+  assert.equal(state.bots.length, 3);
+  assert.equal(state.botOverrides['0'].secret, 'S0');
+});
+
+test('applyBotOp：删除不修改其它机器人的密钥（原样返回）', () => {
+  const state = {
+    bots: [{ label: 'A' }, { label: 'B' }],
+    botOverrides: { 0: { secret: 'S0' }, 1: { secret: 'S1', policy: 'allowlist' } },
+  };
+  const next = applyBotOp(state, 'remove', 1);
+  assert.deepEqual(next.bots.map((b) => b.label), ['A']);
+  assert.equal(next.botOverrides['0'].secret, 'S0');
+  assert.equal(next.botOverrides['1'], undefined);
+});
+
+test('applyBotOp：新增按当前长度追加，并清掉该下标可能残留的旧覆盖', () => {
+  const state = { bots: [{ label: 'A' }], botOverrides: { 0: { secret: 'S0' }, 1: { secret: 'STALE' } } };
+  const next = applyBotOp(state, 'add');
+  assert.equal(next.bots.length, 2);
+  assert.equal(next.bots[1].label, '机器人2');
+  assert.equal(next.bots[1].secret, '', '新增骨架不带密钥');
+  assert.equal(next.botOverrides['1'], undefined, '「删掉又新增」不能继承上一个机器人的覆盖');
+  assert.equal(next.botOverrides['0'].secret, 'S0', '其它机器人的密钥不受影响');
+});
+
+test('applyBotOp：下标越界 / 未知操作必须抛错（调用方据此丢弃该命令）', () => {
+  const state = { bots: [{ label: 'A' }], botOverrides: {} };
+  assert.throws(() => applyBotOp(state, 'remove', 5), /下标越界/);
+  assert.throws(() => applyBotOp(state, 'remove', -1), /下标越界/);
+  assert.throws(() => applyBotOp(state, 'remove', 'x'), /下标越界/);
+  assert.throws(() => applyBotOp(state, 'explode', 0), /未知的机器人操作/);
+});
+
+test('applyBotOps：坏命令只丢自己，不阻塞其余命令', () => {
+  const failures = [];
+  const state = { bots: [{ label: 'A' }, { label: 'B' }], botOverrides: { 0: { secret: 'S0' }, 1: { secret: 'S1' } } };
+  const result = applyBotOps(state, [
+    { op: 'remove', index: 9 },
+    { op: 'remove', index: 0 },
+  ], (event, extra) => failures.push({ event, ...extra }));
+  assert.equal(result.applied, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(result.bots.length, 1);
+  assert.equal(result.bots[0].label, 'B');
+  assert.equal(result.botOverrides['0'].secret, 'S1');
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].event, 'botOp.failed');
+});
+
+test('slugOf / defaultBotConfig：会话 id 稳定且与客户端 defaultBot 同形', () => {
+  assert.equal(slugOf('我的机器人', 1), 'bot1', '中文名压空后回落到序号');
+  assert.equal(slugOf('My Bot', 2), 'my-bot');
+  for (const index of [1, 2, 3]) {
+    assert.deepEqual(
+      defaultBotConfig(index), clientDefaultBot(index),
+      `宿主与客户端的默认机器人配置必须完全一致（index=${index}）`,
+    );
+  }
+});
+
+test('storeSection：同名冲突策略必须以机器可读字段物化（脚本据此判定）', () => {
+  assert.equal(storeSection({ store: {} }).conflict_suffix, true, '缺省应为 true（与历史行为一致）');
+  assert.equal(storeSection({ store: { conflictSuffix: true } }).conflict_suffix, true);
+  assert.equal(storeSection({ store: { conflictSuffix: false } }).conflict_suffix, false);
+  assert.match(storeSection({ store: { conflictSuffix: false } }).naming.conflict, /直接失败/);
+  assert.match(storeSection({ store: { conflictSuffix: true } }).naming.conflict, /-2\/-3/);
+});
+
+test('pipelineConfig：单篇转换超时物化进 convert.timeout_sec（含非法值兜底）', () => {
+  assert.equal(pipelineConfig({ pipeline: {} }).convert.timeout_sec, 180);
+  assert.equal(pipelineConfig({ pipeline: { convertTimeoutSec: 30 } }).convert.timeout_sec, 30);
+  assert.equal(pipelineConfig({ pipeline: { convertTimeoutSec: 0 } }).convert.timeout_sec, 180);
+  assert.equal(pipelineConfig({ pipeline: { convertTimeoutSec: -1 } }).convert.timeout_sec, 180);
+  assert.equal(pipelineConfig({ pipeline: { convertTimeoutSec: 'abc' } }).convert.timeout_sec, 180);
 });
 
 test('package.json：DSH 插件包声明完整（可发布/可安装）', () => {

@@ -76,7 +76,8 @@ for f in glob.glob('staging/converted/微信文章/分享_*/*.md'):
     e=re.findall(r'&[a-zA-Z]+;|&#\d+;',b); t=[x for x in re.findall(r'<[a-zA-Z/][^>]{0,80}>',b) if not x.startswith('<http')]
     print(f, '实体:', e or '无', '裸标签:', t or '无')
 PY
-# 全链：OBS_VAULT_ROOT=… python3 tests/run_m0.py "<URL>"（含 format/verify/store）
+# 全链回归（不联网）：python3 -m unittest discover -s pipeline/tests -t pipeline/tests
+#   （转换脚本入口的超时兜底由 test_convert_timeout.py 守护）
 ```
 
 ## 边界 / 引用

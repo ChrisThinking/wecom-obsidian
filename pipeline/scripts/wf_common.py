@@ -139,6 +139,17 @@ def resolve_rel_dir(store_cfg, meta, name, created=''):
     return '/'.join(parts)
 
 
+def conflict_suffix(store_cfg=None):
+    """同名冲突时是否加 `-2/-3` 后缀。
+
+    由设置页「同名冲突自动加 -2/-3 后缀」物化进 `store.conflict_suffix`；缺省为
+    True（与历史行为、文档一致）。为 False 时 STORE 遇到冲突直接失败并保留整包，
+    让用户自己决定怎么处理 —— 这是设置页承诺过的行为，必须真的生效。
+    """
+    cfg = store_cfg if isinstance(store_cfg, dict) else (load_obsidian().get('store') or {})
+    return cfg.get('conflict_suffix', True) is not False
+
+
 def now_cst():
     return datetime.datetime.now(tz=CST)
 

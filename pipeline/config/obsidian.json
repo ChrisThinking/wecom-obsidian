@@ -22,6 +22,7 @@
       "default": "网页"
     },
     "platform_dir": false,
+    "conflict_suffix": true,
     "naming": {
       "pattern": "纯标题（Obs 默认标题命名）",
       "cleanup": "禁符→_；压缩空白；去首尾点空格；上限120字（Obs 5.3）",

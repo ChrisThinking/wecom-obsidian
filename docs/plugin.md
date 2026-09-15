@@ -1,7 +1,8 @@
 # dsh-wecom-obsidian — 插件详细文档
 
 > 企业微信机器人「收藏网址 → Obsidian」一体化 DSH 插件。
-> 装一次，配置页填几项，企微里发链接就能进库；**重装 DSH 后重跑一次安装脚本即可恢复**。
+> 装一次，配置页填几项，企微里发链接就能进库；**重跑一次安装脚本即可恢复插件本体**
+> （Bot 凭证 / Vault 路径 / 账本不在插件包里，DSH_HOME 不变就还在，详见下方「安装」）。
 >
 > 本文是**实现与运维层面的详细说明**（设计取舍、故障复盘、依赖矩阵、配置迁移）。
 > 面向使用者的快速上手与安装步骤见仓库根目录的 [`readme.md`](../readme.md)。
@@ -36,10 +37,16 @@ bash install/install.sh
 
 1. 装插件自己的 Node 依赖（企微长连接 SDK；优先从本机已有副本**离线**复制）；
 2. 把 `@deepseek-ai/cordis`、`@deepseek-ai/schemastery` 软链进来（必须与宿主同一份）；
-3. 在 Profile 的 `package.json` 里登记 link 依赖 + `dsh.profile.bundles`；
+3. 在 Profile 的 `package.json` 里登记 link 依赖 + `dsh.profile.bundles`，并校验
+   `profiles/<profile>/node_modules/<包名>` 真的可解析（否则非 0 退出，不假报成功）；
 4. 安装收藏 Agent 预设到 `${DSH_HOME}/.agent-presets/wecom-obsidian-collector/`；
 5. 建运行时数据目录 `${DSH_HOME}/wecom-obsidian/`；
 6. 提示（可选）停用旧的 `@local/dsh-wecom-aibot-host` 行。
+
+`DSH_HOME` 的解析顺序：显式 `$DSH_HOME` > 正在运行的 dsh 进程环境 > `~/.dsh`；
+不是 `~/.dsh` 时请显式传入（`DSH_HOME=/path/to/dsh-home bash install/install.sh`）。
+安装脚本**不碰** `${DSH_HOME}/settings.yaml` 与 `${DSH_HOME}/wecom-obsidian/`，
+所以只要 DSH_HOME 不变，重跑不会丢凭证与账本；DSH_HOME 变了请自行备份迁移。
 
 然后重启 DSH，打开 **设置 → 企微 Obsidian 收藏**。
 
@@ -75,11 +82,17 @@ bash install/install.sh
 | **保存应用** | 把这张卡片改动的三项写回宿主。只有存在未保存修改时才可点，改过会显示「有未保存修改」徽标 |
 | **放弃修改** | 丢弃这张卡片的未落盘编辑，回到已保存的值 |
 | **删除** | 立即写入并应用 |
-| **+ 添加机器人** | 立即落盘一条带默认值的新机器人，再填三项后点该卡片的「保存应用」 |
+| **+ 添加机器人** | 立即提交一条「新增」意图，Host 追加一台带默认值的新机器人，再填三项后点该卡片的「保存应用」 |
 
-保存是**路径寻址**写入（`bots/<索引>/<字段>`）：一次只覆盖你改过的键，
+保存是**路径寻址**写入（`botOverrides/<索引>/<字段>`）：一次只覆盖你改过的键，
 不会牵动别的机器人，也不会因为并发编辑而互相覆盖。
 写回后 Host 立刻收到 `settings/changed`，只重连受影响的机器人。
+
+**增删机器人不走浏览器侧写数组**：`bots` 是数组，DSH 的 path mutation 无法深入数组，
+而且浏览器读数里**没有** `secret`（`role('secret')` 每次 Remote 读都被剥离）——
+用脱敏值重写 `bots` 会抹掉其余机器人的凭证。所以配置页只往 `botOps[]` 追加
+一条 `{op,index,nonce}` 意图，Host 拿**未脱敏**的原始段执行结构变更，再用
+`replace()` 精确写回（`lib/bot-ops.js`）。详情见《故障档案》B4-1。
 
 然后是全局的这几项（底部「保存路径规则」按钮）：
 
@@ -135,6 +148,15 @@ bash install/install.sh
 
 实际落点举例：`01_文章分享/2026/09/某篇文章/`，包内含
 `某篇文章.md` + `assets/`（图片，名字由「资源目录名」决定）+ `source_page.html`（源页快照）。
+
+**同名冲突**：`folder_pattern` 的最后一段就是 note 目录名。默认规则下第二篇同名文章
+落在 `01_文章分享/2026/09/某篇文章-2/某篇文章-2.md`（目录与 md 同名，`-2/-3` 递增）；
+frontmatter 的 `path` 快照同步写成 `01_文章分享/2026/09/某篇文章-2`。
+配置页的「同名冲突自动加 -2/-3 后缀」关掉后，STORE 遇到冲突**直接失败并保留整包**
+（退出码 2），由用户决定怎么处理 —— 该开关会物化成 `store.conflict_suffix` 供脚本判定。
+
+**去重**：`ledger_last(url_key).status == done` **且**该记录指向的入库物仍然存在时才跳过；
+若笔记本体已被删/被移走，STORE 会记一条 error 并**重新入库**（不会把这次的新包直接丢掉）。
 
 ---
 
@@ -215,7 +237,7 @@ grep -o "failed to load: [^\"]*" ~/Library/Logs/dsh/launchd-stderr.log | sort | 
 
 | # | 症状 | 真实原因 | 改法 |
 |---|---|---|---|
-| 6 | 删除中间一台机器人后，**后面机器人的覆盖（含密钥、白名单）套到了别的机器人身上** | 覆盖表 `botOverrides` 按**数组下标字符串**存键，而 `removeBot` 只重写了 `bots`、没有重排覆盖表的键 → 键整体前移错位 | `removeBot` 与 `addBot` 都同时重写 `botOverrides`（`overridesAfterRemove()` 重排；新增时清掉该下标的陈旧覆盖）。⚠️ **增删机器人的代码必须成对处理这两个字段** |
+| 6 | 删除中间一台机器人后，**后面机器人的覆盖（含密钥、白名单）套到了别的机器人身上** | 覆盖表 `botOverrides` 按**数组下标字符串**存键，而 `removeBot` 只重写了 `bots`、没有重排覆盖表的键 → 键整体前移错位 | 增删一律改成 Host 侧 `applyBotOp()` 统一处理 `bots` + `botOverrides`（重排 + 清陈旧覆盖）。⚠️ **这两个字段必须成对处理**；详见 B4-1 |
 | 7 | 路径规则里写 `{platform}` 看起来生效、实际不分平台 | `store.py` 只读规则里有没有 `MM`，其余占位符**一律忽略** | 新增 `wf.resolve_rel_dir()` 由 `folder_pattern` 单点驱动；FORMAT 与 STORE 共用它，保证 `path` 快照与落点一致 |
 | 8 | 设置页改「资源目录名」不生效 | `assets` 在 `format`/`verify`/`wf_common` 三处**写死** | 统一改读 `store.assets_dir`（`wf.assets_dir_name()`） |
 
@@ -228,6 +250,22 @@ grep -o "failed to load: [^\"]*" ~/Library/Logs/dsh/launchd-stderr.log | sort | 
 
 > 收件目录是**工作区里的暂存区**，与 Obsidian 库的目录结构无关 ——
 > `{top}` 属于库的规则，两者不要混用。该项现已从配置页移除（默认 `<工作区>/staging/inbox`）。
+
+### B4. 复查发现并修复的一组缺陷（2026-09，含回归测试）
+
+这一组都是「代码看起来对、但行为和承诺不一致」的类型，每条都补了可复现的回归测试。
+
+| # | 症状 | 真实原因 | 改法 / 守护测试 |
+|---|---|---|---|
+| 11 | 入库落点变成 `顶层/年/月/标题/标题/标题.md` | `store.folder_pattern` 默认**已经含 `{name}`**，而 STORE 把解析结果当「父目录」又在下面追加了一次文章名 | `resolve_target()`：规则最后一段就是 note 目录；只有规则里**没有** `{name}` 时才补一段。`path` 快照也按最终叶子写 → `pipeline/tests/test_store.py`、`test_path_rules.py` |
+| 12 | 增删机器人会抹掉**其余机器人**的 Secret | 浏览器读数是脱敏的（`secret` 被剥离），旧实现用脱敏值整体写回 `bots`/`botOverrides`；`bots/<i>` 深路径写入还会把数组换成对象被 schema 拒绝 | 配置页只提交 `botOps[]` 意图；Host 读**未脱敏**的 `user` 段执行 `applyBotOp()` 并 `replace()` 写回 → `tests/settings-service.test.mjs`（**真实 `SettingsProvider`**）、`tests/lifecycle.test.mjs` |
+| 13 | 设置页四个开关选了没用：同名后缀 / 图片下载 / 收到回执 / 单篇转换超时 | `store.py` 不读 `conflictSuffix`；`mediaEnabled`/`replyAck` 没传给 `WecomBot`；`convertTimeoutSec` 没有任何消费者 | 分别落到 `store.conflict_suffix`、`WecomBot.mediaEnabled` / `replyAck`、`convert.timeout_sec` + `_common.run_guarded()` → `tests/wecom-media.test.mjs`、`pipeline/tests/test_convert_timeout.py`、`tests/unit.test.mjs` |
+| 14 | 安装脚本：默认 `~/.dsh` 找错 DSH_HOME；`corepack pnpm` 被当命令名；依赖登记失败仍打印「安装完成」 | `PNPM="corepack pnpm"` 拼串后整体当命令；结尾横幅无条件打印 | 数组调用 `"${PNPM[@]}"`；DSH_HOME 解析顺序 = env > 运行中进程 > `~/.dsh`；结尾**校验** `profiles/<p>/node_modules/<name>` 可解析，否则非 0 退出 → `tests/install-script.test.mjs` |
+| 15 | live reload（profile patch 层热更新）后插件静默不装载 | 进程级 `applied` 守卫在 dispose 时未复位，而模块实例仍在 loader 缓存里，第二次 `apply()` 直接短路 | dispose 清理里 `applied = false` → `tests/lifecycle.test.mjs` |
+| 16 | 账本说 done 但笔记已被删 → 再次收藏被当重复，整包被丢弃；并发收藏可能双写 | DEDUP 只看账本最后一条 `done`，不校验 `vault_path` 是否存在；STORE 多步过程没有串行化 | `stored_asset_exists()` + 不满足时记 error 并重新入库；`url_lock()`（`flock`）按 `url_key` 串行 → `pipeline/tests/test_store.py` |
+
+> 维护提示：`lib/bot-ops.js` 是**宿主侧**模块，客户端 bundle 不能 import 它；
+> 客户端只保留一份 `defaultBot`/`slugOf` 镜像（`tests/unit.test.mjs` 有用例断言两者同形）。
 
 ### C. 一条不成立、但已保留的写法（诚实记录）
 
