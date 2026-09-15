@@ -17,7 +17,7 @@
 |---|---|---|
 | 企微长连接（收消息 / 回执 / 下载媒体） | `@local/dsh-wecom-aibot-host`（独立包 + profile 补丁行） | 本插件 Host 半边 |
 | 收藏指令路由与独立收藏会话 | 同上（硬编码在桥接里） | `lib/session-router.js` |
-| 采集流水线（convert / format / verify / store） | `workspaces/obsidian管理/scripts` | `pipeline/`（随包分发） |
+| 采集流水线（convert / format / verify / store） | `workspaces/<旧工作区>/scripts` | `pipeline/`（随包分发） |
 | 三个 Skill | 同上 `skills/` | `pipeline/skills/`（预设直接指向） |
 | 收藏 Agent 预设 | `${DSH_HOME}/.agent-presets/obsidian-collector` | `bundle/agent/`，安装脚本写入 |
 | 配置（凭证 / 库路径 / 规则） | `wecom-bots.json` + 0600 env 文件 + `config/obsidian.json` 三处手同步 | **设置页一处** |
@@ -72,7 +72,7 @@ bash install/install.sh
 | 模型路由 | 跟随 DSH 部署默认（`agent-default-model`），改了默认值机器人会跟着走 |
 
 > 保存时以**已保存的配置为基底**做合并：配置页只覆盖那三项，其余字段原样保留。
-> 所以手改过 `settings.yaml` 的人（例如给安妈机器人配白名单）不会被配置页悄悄重置。
+> 所以手改过 `settings.yaml` 的人（例如给某台机器人配白名单）不会被配置页悄悄重置。
 
 #### 每张卡片的操作
 
@@ -532,20 +532,20 @@ bash install/migrate-legacy-config.sh             # 生成计划文件（0600）
 > 计划文件含明文密钥（0600）。写入完成后请删除：
 > `rm -f ${DSH_HOME}/wecom-obsidian/migration-plan.json`。
 
-迁移对照（本机实际执行结果）：
+迁移对照（一次实际迁移的结果；机器人名以 A/B/C 指代）：
 
 | 配置项 | 旧位置 | 新位置 | 结果 |
 |---|---|---|---|
-| 机器人0号 ID/Secret | `wecom-bot.env` `WECOM_BOT_*` | `bots[0]` | ✅ 已迁移，已上线 |
-| 机器人1号 ID/Secret | `wecom-bot.env` `WECOM_BOT2_*` | `bots[1]` | ✅ 已迁移，已上线 |
-| 安妈凭证 | `WECOM_BOT3_*`（未填） | `bots[2]` `enabled=false` | ○ 缺凭证，未启用 |
+| 机器人A ID/Secret | `wecom-bot.env` `WECOM_BOT_*` | `bots[0]` | ✅ 已迁移 |
+| 机器人B ID/Secret | `wecom-bot.env` `WECOM_BOT2_*` | `bots[1]` | ✅ 已迁移 |
+| 机器人C 凭证 | `WECOM_BOT3_*`（未填） | `bots[2]` `enabled=false` | ○ 未填凭证，未启用 |
 | 对话/收藏会话 id | `wecom-bots.json` | 同值 | ✅ 保留（会话连续） |
 | Vault 根 | `config/obsidian.json` | `vaultRoot` | ✅ |
 | 存储路径规则 | `{top}/{YYYY}/{MM}/{name}` | 同值 | ✅ 年/月 |
 | 顶层目录 / assets | `01_文章分享` / `assets` | 同值 | ✅ |
 | markitdown CLI | `config/runtime.json` | `pipeline.markitdownCli` | ✅ |
-| 安妈白名单 | `wecom-bots.json` `policy: allowlist` | `policy` + `allowlist` | ✅ 已支持并接线 |
-| 采集工作目录 | `workspaces/obsidian管理` | `${DSH_HOME}/wecom-obsidian/workspace` | 🔁 改为插件数据目录 |
+| 机器人C 白名单 | `wecom-bots.json` `policy: allowlist` | `policy` + `allowlist` | ✅ 已支持并接线 |
+| 采集工作目录 | `workspaces/<旧工作区>` | `${DSH_HOME}/wecom-obsidian/workspace` | 🔁 改为插件数据目录 |
 
 白名单闸门是**句首锚定**的（`isAllowlisted`）：只有以白名单条目开头的消息才进
 agent，其余固定话术直回、不产生任何会话与模型调用。

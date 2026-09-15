@@ -41,7 +41,9 @@ if [ -z "${WECOM_ENV_FILE:-}" ]; then
   done
 fi
 WECOM_ENV_FILE="${WECOM_ENV_FILE:-$HOME/wecom-bot.env}"
-OBS_WS="${OBS_WORKSPACE:-$DSH_HOME/workspaces/obsidian管理}"
+# 旧工作区名随部署而变（历史上是 <DSH_HOME>/workspaces/<名字>）；默认给一个中性值，
+# 实际路径不同请用 OBS_WORKSPACE 指定（找不到时会告警并提示）。
+OBS_WS="${OBS_WORKSPACE:-$DSH_HOME/workspaces/obsidian}"
 
 say()  { printf '\033[1;36m[migrate]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }

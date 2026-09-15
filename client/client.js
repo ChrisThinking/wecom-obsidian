@@ -945,7 +945,7 @@ window.__ModuleLoader__.load({
                 e(Field, { label: '机器人名称' },
                   e(TextInput, {
                     value: bot.label,
-                    placeholder: '例如：机器人0号',
+                    placeholder: '例如：我的机器人',
                     onChange: (text) => patchBot(index, { label: text }),
                   }),
                   e('span', { style: css.desc }, '用于日志、健康状态与会话 id 派生，可自由命名。'),

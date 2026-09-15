@@ -410,7 +410,7 @@ source_page.html
 WebArticle 可以先进入收件箱：
 
 ```text
-01_Knowledge/**/00_收件箱/
+<库根>/**/00_收件箱/
 ```
 
 收件箱是：

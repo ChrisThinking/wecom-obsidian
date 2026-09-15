@@ -2,7 +2,7 @@
   "说明": "【模板】由插件在运行时物化；本文件是可移植的干净默认值，不含任何机器专属路径。",
   "workspace": {
     "root_rel": "..",
-    "note": "工作区根 = obsidian管理/（作为 agent/skill/job 功能实现区，实现存储隔离）"
+    "note": "工作区根 = 工作区目录（作为 agent/skill/job 功能实现区，实现存储隔离）"
   },
   "markitdown": {
     "cli": "",

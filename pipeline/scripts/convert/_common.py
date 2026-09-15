@@ -10,7 +10,7 @@ convert 阶段共享工具
   3. 提供 convert 阶段的默认输出约定（staging/converted 下按来源分子目录）。
 
 约定：
-  - 工作区根 = 含 config/ 与 staging/ 的目录（即本工作区 obsidian管理/）。
+  - 工作区根 = 含 config/ 与 staging/ 的目录（即工作区目录）。
   - pipeline.json 内的相对路径一律以工作区根为基准。
 """
 import json
