@@ -1,0 +1,74 @@
+{
+  "name": "dsh-wecom-obsidian",
+  "version": "1.0.0",
+  "description": "企业微信机器人「收藏网址 → Obsidian」一体化 DSH 插件：长连接桥接 + 收藏 Agent/Skill + 采集流水线 + 浏览器配置界面。",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "wecom",
+    "wechat-work",
+    "obsidian"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./client/client.js"
+    },
+    "./cordis.patch.yml": "./bundle/cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "client/**/*.js",
+    "bundle/**",
+    "pipeline/**",
+    "install/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./bundle/cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "external": [
+        "react"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "install:plugin": "bash install/install.sh",
+    "uninstall:plugin": "bash install/uninstall.sh",
+    "check": "node --check lib/index.js && node --check lib/workspace.js && node --check lib/session-router.js && node --check lib/wecom-client.js && node --check lib/settings-ns.js && node --check client/client.js"
+  },
+  "dependencies": {
+    "@wecom/aibot-node-sdk": "^1.0.7"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  }
+}

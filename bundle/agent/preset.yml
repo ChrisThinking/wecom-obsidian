@@ -1,0 +1,6 @@
+name: 企微收藏 Agent（Obsidian）
+description: >-
+  企业微信机器人「收藏网址 → Obsidian」专用预设：只做 URL/分享页到
+  Obsidian WebArticle 资产的确定性转换（acquire → obsidian-format →
+  obsidian-store），不做普通对话，不修改脚本核心逻辑。由
+  dsh-wecom-obsidian 插件安装。

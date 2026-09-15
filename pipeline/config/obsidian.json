@@ -1,0 +1,108 @@
+{
+  "说明": "【模板】由插件在运行时物化（设置 → 企微 Obsidian 收藏）。本文件是可移植的干净默认值；vault_root 留空表示尚未配置，首次使用请在设置页填写「Obsidian 导入地址」。",
+  "vault": {
+    "kind": "external",
+    "vault_root": "",
+    "vault_test_root": "tests/tmp_vault",
+    "resolve_order": "OBS_VAULT_ROOT 环境变量 > vault_root（本文件）> vault_test_root"
+  },
+  "template": {
+    "name": "WebArticle",
+    "path": "templates/文章模板.md",
+    "note": "DSH 本地运行模板（derived）；对应 Obs WebArticle 模板解析/标准化结果"
+  },
+  "store": {
+    "rule": "yearly",
+    "top_folder": "01_文章分享",
+    "folder_pattern": "{top}/{YYYY}/{MM}/{name}",
+    "year_field": "created",
+    "platform_map": {
+      "mp.weixin.qq.com": "微信",
+      "xiaohongshu.com|xhslink.cn": "小红书",
+      "default": "网页"
+    },
+    "platform_dir": false,
+    "naming": {
+      "pattern": "纯标题（Obs 默认标题命名）",
+      "cleanup": "禁符→_；压缩空白；去首尾点空格；上限120字（Obs 5.3）",
+      "conflict": "-2/-3 递增 —— DSH 冲突处理机制（非 Obs 规则；Obs 只规定标准文件名）；名称保护，非内容去重（内容去重靠 url_key ledger）"
+    },
+    "package": "<name>/{<name>.md + assets/ + source_page.html}（原子资产包，禁止跨文章共享）",
+    "source_page": "保留在 Stored Asset",
+    "note": "M1-B 定稿：顶级 01_文章分享/；年份依据 created；不按平台建子目录（platform 只在 frontmatter）",
+    "assets_dir": "assets",
+    "rule_source": "M1-C 生成自 rule_src/（WebArticle.md + webArticle同步配置规范.md）→ M4 切 99_obsConfig",
+    "month_field": "created"
+  },
+  "frontmatter": {
+    "schema": {
+      "title": {
+        "type": "string",
+        "default": null,
+        "runtime": true,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "type": {
+        "type": "const",
+        "default": "web_article",
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "url": {
+        "type": "string",
+        "default": "\"\"",
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "author/ID": {
+        "type": "string",
+        "default": "\"\"",
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "platform": {
+        "type": "string",
+        "default": "\"\"",
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "published": {
+        "type": "string",
+        "default": "\"\"",
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "created": {
+        "type": "datetime",
+        "default": null,
+        "runtime": true,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "path": {
+        "type": "string",
+        "default": null,
+        "runtime": true,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "read": {
+        "type": "bool",
+        "default": false,
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      },
+      "tags": {
+        "type": "array",
+        "default": [],
+        "runtime": false,
+        "note": "由 rule_src/WebArticle.md 解析（M1-C 生成；M2 起 format 按此 schema 输出）"
+      }
+    },
+    "required": [
+      "title",
+      "type",
+      "url",
+      "created"
+    ],
+    "note": "无 status 字段；流程状态在 ledger（M1-B A2）"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "说明": "【模板】由插件在运行时物化；本文件是可移植的干净默认值，不含任何机器专属路径。",
+  "workspace": {
+    "root_rel": "..",
+    "note": "工作区根 = obsidian管理/（作为 agent/skill/job 功能实现区，实现存储隔离）"
+  },
+  "markitdown": {
+    "cli": "",
+    "resolved_from": "not-found",
+    "install_note": "uv tool install \"markitdown[all]\"（或 pipx install markitdown）；也可在设置页显式填写绝对路径"
+  },
+  "python": {
+    "bin": ""
+  },
+  "wecom": {
+    "enabled": false,
+    "note": "企微机器人通道参数与指令路由属 M5；设计与占位见 docs/企微指令路由设计.md 与 config/agents-skills.json"
+  },
+  "obsidian_vault": {
+    "note": "Obsidian 库独立于 DSH/本工作区管理，本文件不存放库内容；写入规则见 config/obsidian.json"
+  },
+  "beautifulsoup4": {
+    "note": "仅微信图文（mp.weixin.qq.com）需要；分享页/小红书/头条为纯标准库",
+    "install": "python3 -m pip install --target <插件数据目录>/pylibs beautifulsoup4"
+  }
+}

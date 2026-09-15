@@ -1,0 +1,12 @@
+# dsh-wecom-obsidian — DSH Profile Bundle patch
+#
+# 本文件是插件包自带的 composition 补丁。由 Profile 的 `dsh.profile.bundles`
+# 顺序叠加：dsh-base → dsh-web-app → 本补丁 → profile 自己的 cordis.patch.yml。
+# 安装方式见 README（`dsh plugin --profile web add` 或 install/install.sh）。
+#
+# 宿主入口只插入一次：负责企微长连接、消息路由、收藏会话和设置 namespace。
+# 浏览器端入口由 package.json 的 dsh.client 元数据发现，不能再次插入宿主入口。
+
+- insert:
+    - id: wecom-obsidian
+      name: 'dsh-wecom-obsidian'

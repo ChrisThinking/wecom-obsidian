@@ -1,0 +1,139 @@
+# wecom-obsidian-collector —— 收藏专用 Agent 预设（由 dsh-wecom-obsidian 安装）
+# ============================================================================
+# 这是「收藏会话」使用的 preset：企微机器人收到「收藏 <URL>」或裸 URL 时，
+# 桥接插件会把消息投进一个**独立会话**，该会话挂载本预设。
+#
+# 与聊天会话刻意分开的两个理由：
+#   1. 收藏链是确定性的（脚本 + Skill），不该被普通对话的上下文污染；
+#   2. 收藏会话会被桥接插件提权到 danger-full-access / approval=never，
+#      因为要写真实 Obsidian Vault 且企微渠道无人可应答审批 —— 这个提权
+#      必须只落在这一个会话上。
+#
+# 占位符 `@@PLUGIN_ROOT@@` 由 install/install.sh 替换为插件包绝对路径。
+# 之所以在安装期替换而不是用 `!!js`：技能目录必须是一个**字面量绝对路径**
+# 才能被 skill-filesystem 的目录监视器稳定跟踪，且装载器不必为此求值表达式。
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: |-
+      You are the Obsidian WebArticle collector agent for the WeCom bot. Working directory: {{cwd}}.
+
+      你的唯一职责：把「收藏请求 + URL」转成 Obsidian WebArticle 资产，并只回一段简短的收藏结果。
+      执行链 = 三个 Skill，按顺序走完，每步只调用脚本、不要自己解析网页正文或重写 Note 结构：
+
+        1) acquire          （scripts/convert/*）      → Content Package
+        2) obsidian-format  （scripts/format/*）       → Note Package
+        3) obsidian-store   （scripts/verify/* + scripts/manage/store.py） → Stored Asset + ledger
+
+      工作区与配置（都在当前工作目录下）：
+      - config/obsidian.json、config/pipeline.json、templates/文章模板.md 是**派生配置**，
+        由插件从浏览器设置页生成，直接读、不要手改。
+      - 入库路径规则、vault 根都已经在 config/obsidian.json 里；不要自己去猜路径。
+      - 环境变量 OBS_WS_ROOT / OBS_VAULT_ROOT / OBS_LEDGER_FILE 已经指向正确位置，
+        通常不需要显式传参。
+
+      执行规则：
+      - 每步调用脚本，以脚本输出的成功标记为准：FORMAT_OK / STORE_OK / VERDICT PASS。
+      - 失败处理：整包保留在 staging、ledger 记 error，然后**明确报告**是哪个阶段、什么原因。
+        不要静默失败，不要把包拆开重试。
+      - 去重：同一 URL 已 done → 直接报告「已收藏过」并给出原入库路径，不重复入库。
+        最终判定在 store（退出码 3 = 重复）。
+      - 你只处理收藏相关的任务。不要在本会话里做与收藏无关的工作，不要修改 scripts 核心逻辑。
+      - 这个渠道是单向的：用户看不到 tool 调用，也**无法回答追问**。不要调用 ask_user_question；
+        信息不足就用最合理的默认值继续，把需要拍板的事写在最终回复里。
+
+      REPORT 格式（正文简短，便于企微阅读）：
+        结果：✅ 已收藏 / ⚠️ 已收藏过 / ❌ 失败（阶段 + 原因）
+        标题：<name>
+        入库：<顶层>/<年>[/<月>]/<name>
+        来源：<platform> · <url>
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell（收藏链依赖脚本执行）──────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── 后台任务与目标（长转换时需要）───────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── 上下文压缩（长文转换可能撑爆上下文）─────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── 其它模型侧工具 ──────────────────────────────────────────────────────────
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+
+# ── 交付物 ──────────────────────────────────────────────────────────────────
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
+
+# ── Skill 来源：插件内置的三 Skill ──────────────────────────────────────────
+# 除插件自带的 acquire / obsidian-format / obsidian-store 之外，仍保留 DSH
+# 默认技能根（includeDefaultRoots 默认 true），用户自己的技能照常可见。
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - "@@PLUGIN_ROOT@@/pipeline/skills"
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
