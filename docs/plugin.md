@@ -66,7 +66,7 @@ bash install/install.sh
 
 | 参数 | 自动取值 |
 |---|---|
-| 对话 / 收藏会话 id | 按机器人名称派生（`wecom-<slug>` / `wecom-<slug>-collector`）；中文名回落到 `wecom-<序号>` |
+| 对话 / 收藏会话 id | 按机器人名称派生**可读前缀** + 一次性随机 token：`wecom-<slug>-<token>` / `wecom-<slug>-<token>-collector`。展示编号可以复用（删中间一台后补位），但会话 id **永不复用** —— 路由按 sessionId `resume`，复用等于让新机器人继承被删机器人的上下文 |
 | 收藏能力 / 媒体下载 | 全开 |
 | 放行策略 | `open`（如需白名单，直接改设置文档里该机器人的 `policy`/`allowlist`） |
 | 模型路由 | 跟随 DSH 部署默认（`agent-default-model`），改了默认值机器人会跟着走 |
@@ -283,6 +283,8 @@ grep -o "failed to load: [^\"]*" ~/Library/Logs/dsh/launchd-stderr.log | sort | 
 | 23 | 发布包缺少 `docs/plugin.md` | `package.json.files` 没写 `docs/**` | 补上，并用 `npm pack --dry-run --json` 断言真实打包列表包含 docs 与各入口 → `tests/package-files.test.mjs` |
 | 24 | 全新安装时 `pnpm add` / `pnpm install` 全部失败（`ERR_PNPM_UNEXPECTED_STORE`） | Profile 里**已有** node_modules 时，pnpm 拒绝换 store；而脚本从普通终端跑时 pnpm 会按「项目所在卷」另选一个 store，与既有 node_modules 记录的 store 不一致 | install.sh 从 `profiles/<p>/node_modules/.modules.yaml`（内容是 JSON）读出既有 `storeDir`，显式 `--store-dir` 复用 → `tests/install-script.test.mjs` |
 | 25 | 明明旧桥接已停用，安装脚本仍告警「检测到旧的企微桥接插件行」 | `grep -q "$LEGACY_MARK"` 把**注释里**的历史提及也当成启用中 | 只看未注释行（`grep -v '^[[:space:]]*#'`）→ `tests/install-script.test.mjs`（注释/启用两种用例） |
+| 26 | 头条转换器打印 `CONVERT_URL_OK` 后立刻 `NameError: n_img is not defined` | 把渲染循环抽成 `render_body()` 后，`main()` 仍引用随循环一起移走的 `n_img` / `fails`；成功标记在崩溃**之前**打印，所以现象是「看着成功、实际非 0 退出」 | `render_body()` 返回具名 dict；新增**完整入口**测试（桩掉网络跑 `main()`）+ 覆盖全部 pipeline 脚本的「未定义名字」静态扫描（两种守护都自证能抓到该回归）→ `pipeline/tests/test_convert_entrypoints.py`、`pipeline/tests/test_undefined_names.py` |
+| 27 | 删除机器人后再新增，新机器人**继承被删机器人的历史会话** | `nextBotIndex()` 复用空闲编号，`sessionId` 也随之复用（`wecom-2`）；路由 `ensureAgentFor` 会 `resume` 同名会话 → 换成另一家企微账号时开场就带着旧上下文 | 展示编号与会话身份分开：编号仍取最小空闲（`机器人2`），`sessionId` 改为 `wecom-<slug>-<随机token>`，一次一换；客户端镜像同步 → `tests/unit.test.mjs`、`tests/settings-service.test.mjs` |
 
 ### C. 一条不成立、但已保留的写法（诚实记录）
 

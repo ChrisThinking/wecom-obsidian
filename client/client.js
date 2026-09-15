@@ -425,19 +425,25 @@ window.__ModuleLoader__.load({
      * settings.yaml 自己就是一份完整、可读、可手改的真值 —— 配置页只编辑
      * 其中三项，其余保持原样。
      *
-     * @param {number} index - 从 1 开始的序号。
+     * **展示编号与会话身份分开**：`label` 可以复用（删中间一台后补位），但会话 id
+     * 带一次性随机后缀 —— 路由按 sessionId 恢复历史会话，复用旧 id 会让新机器人
+     * 继承被删机器人的上下文（宿主侧 `lib/bot-ops.js` 是同一套规则）。
+     *
+     * @param {number} index - 从 1 开始的序号（仅用于展示名与可读前缀）。
+     * @param {string} [token] - 身份后缀；不传则本地随机生成。
      * @returns {object} 完整 bot 配置。
      */
-    function defaultBot(index) {
+    function defaultBot(index, token) {
       const label = `机器人${index}`;
       const slug = slugOf(label, index);
+      const id = String(token || Math.random().toString(36).slice(2, 8));
       return {
         label,
         enabled: true,
         botId: '',
         secret: '',
-        sessionId: `wecom-${slug}`,
-        collectorSessionId: `wecom-${slug}-collector`,
+        sessionId: `wecom-${slug}-${id}`,
+        collectorSessionId: `wecom-${slug}-${id}-collector`,
         collectEnabled: true,
         mediaEnabled: true,
         policy: 'open',

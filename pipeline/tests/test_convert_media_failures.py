@@ -43,8 +43,9 @@ class ToutiaoRenderTest(unittest.TestCase):
             return (b'\x89PNG\r\n\x1a\n' + b'\x00' * 8), url
 
         with mock.patch.object(self.mod, '_img_fetch', side_effect=fake_fetch):
-            lines, fails = self.mod.render_body(events, self.img_dir, True, '测试标题')
+            rendered = self.mod.render_body(events, self.img_dir, True, '测试标题')
 
+        lines, fails = rendered['lines'], rendered['fails']
         text = '\n'.join(lines)
         self.assertIn('https://img.example.com/broken.png', text,
                       '失败图必须以原始 URL 留在 Markdown 里（供 verify 拦截）')
@@ -58,7 +59,8 @@ class ToutiaoRenderTest(unittest.TestCase):
             return (b'\x89PNG\r\n\x1a\n' + b'\x00' * 8), url
 
         with mock.patch.object(self.mod, '_img_fetch', side_effect=fake_fetch):
-            lines, fails = self.mod.render_body(events, self.img_dir, True, '测试标题')
+            rendered = self.mod.render_body(events, self.img_dir, True, '测试标题')
+        lines, fails = rendered['lines'], rendered['fails']
         text = '\n'.join(lines)
         self.assertEqual(fails, [])
         self.assertNotIn('https://', text, '全部成功时不应出现外部图片链接')

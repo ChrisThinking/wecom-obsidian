@@ -246,6 +246,10 @@ test('设置服务：[修复后] 三台删中间再新增：会话 id 不重复�
   assert.deepEqual(labels, ['机器人1', '机器人3', '机器人2']);
   assert.equal(new Set(labels).size, 3);
   assert.equal(new Set(sessions).size, 3, 'sessionId 重复会让两台机器人共用一段上下文');
+  // 展示编号复用（机器人2），但**会话身份不得复用**：路由按 sessionId resume，
+  // 复用等于把被删机器人的历史上下文交给新机器人（换账号时会串上下文）。
+  assert.notEqual(value.bots[2].sessionId, 'wecom-bot2');
+  assert.notEqual(value.bots[2].collectorSessionId, 'wecom-bot2-collector');
   // 存活机器人的 secret 原样保留（第三台的 secret 存在覆盖表里）
   assert.deepEqual(value.bots.map((b) => b.secret), ['SECRET-1', 'SECRET-3', '']);
 });

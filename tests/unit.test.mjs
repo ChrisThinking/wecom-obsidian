@@ -267,15 +267,43 @@ test('applyBotOps：坏命令只丢自己，不阻塞其余命令', () => {
   assert.equal(failures[0].event, 'botOp.failed');
 });
 
-test('slugOf / defaultBotConfig：会话 id 稳定且与客户端 defaultBot 同形', () => {
+test('slugOf / defaultBotConfig：与客户端 defaultBot 同形（显式 token）', () => {
   assert.equal(slugOf('我的机器人', 1), 'bot1', '中文名压空后回落到序号');
   assert.equal(slugOf('My Bot', 2), 'my-bot');
   for (const index of [1, 2, 3]) {
     assert.deepEqual(
-      defaultBotConfig(index), clientDefaultBot(index),
+      defaultBotConfig(index, 'tok123'), clientDefaultBot(index, 'tok123'),
       `宿主与客户端的默认机器人配置必须完全一致（index=${index}）`,
     );
   }
+});
+
+test('defaultBotConfig：会话身份一次一换，永不复用（新机器人不继承旧上下文）', () => {
+  const a = defaultBotConfig(2);
+  const b = defaultBotConfig(2);
+  assert.notEqual(a.sessionId, b.sessionId, '同一个展示编号也必须拿到不同的会话 id');
+  assert.notEqual(a.collectorSessionId, b.collectorSessionId);
+  // slugOf('机器人2') 只留下数字 2（中文被压掉）→ 前缀 wecom-2
+  assert.match(a.sessionId, /^wecom-2-[0-9a-f]{6}$/);
+  assert.equal(a.collectorSessionId, `${a.sessionId}-collector`);
+});
+
+test('applyBotOp：删除再新增不得复用被删机器人的会话 id（回归）', () => {
+  let state = {
+    bots: [defaultBotConfig(1), defaultBotConfig(2), defaultBotConfig(3)],
+    botOverrides: {},
+  };
+  const removed = state.bots[1];
+  state = applyBotOp(state, 'remove', 1);
+  state = applyBotOp(state, 'add');
+  const added = state.bots[2];
+  // 展示编号复用（机器人2）是有意的；会话身份绝不复用
+  assert.equal(added.label, '机器人2');
+  assert.notEqual(added.sessionId, removed.sessionId,
+    '复用会话 id 会让路由 resume 出被删机器人的历史上下文');
+  assert.notEqual(added.collectorSessionId, removed.collectorSessionId);
+  const sessions = state.bots.map((b) => b.sessionId);
+  assert.equal(new Set(sessions).size, sessions.length);
 });
 
 test('storeSection：同名冲突策略必须以机器可读字段物化（脚本据此判定）', () => {

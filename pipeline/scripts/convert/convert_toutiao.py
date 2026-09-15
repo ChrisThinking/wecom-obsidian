@@ -124,7 +124,11 @@ def render_body(events, img_dir, webp2png, title):
     「存在外部 http(s) 图片链接」判 FAIL，从而拦住「悄悄丢图、全链却报告成功」。
     历史实现只打日志、不写引用，图没了也没人知道。
 
-    @returns {(list, list)} `(markdown 行, 失败图片 URL 列表)`
+    返回值用 dict 而不是元组：调用方需要「正文行 / 图片数 / 失败清单」三样，
+    元组解包时漏接一个就会在**成功标记之后**才炸 NameError（真实踩过：
+    重构后 main 仍引用已移走的 n_img/fails）。具名键让漏接无处可藏。
+
+    @returns {{lines: list, images: int, fails: list}}
     """
     os.makedirs(img_dir, exist_ok=True)
     img_map = {}
@@ -168,7 +172,7 @@ def render_body(events, img_dir, webp2png, title):
         else:
             lines.append(val)
             lines.append('')
-    return lines, fails
+    return {'lines': lines, 'images': n_img, 'fails': fails}
 
 
 def main():
@@ -220,7 +224,10 @@ def main():
     if not events:
         log('CONVERT_URL_FAIL 页面无正文事件（结构变化？）：%s' % final)
         sys.exit(2)
-    lines, _fails = render_body(events, os.path.join(pkg_dir, 'images'), webp2png, title)
+    rendered = render_body(events, os.path.join(pkg_dir, 'images'), webp2png, title)
+    lines = rendered['lines']
+    n_img = rendered['images']
+    fails = rendered['fails']
 
     md_path = os.path.join(pkg_dir, title.replace('/', '_') + '.md')
     with open(md_path, 'w', encoding='utf-8') as f:
