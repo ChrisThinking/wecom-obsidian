@@ -281,6 +281,8 @@ grep -o "failed to load: [^\"]*" ~/Library/Logs/dsh/launchd-stderr.log | sort | 
 | 21 | 图片下载失败仍全链报成功，入库笔记缺图 | 转换器在失败分支只打日志、**不把引用写回 Markdown**（日志却写着「保留原 URL」） | 头条/小红书/微信分享页失败时写入外部图片引用，`verify_note.py` 的「外部 http(s) 图片链接」随即判 FAIL、STORE 拒收整包 → `pipeline/tests/test_convert_media_failures.py`（含 `render_body`/`download_images` 可测化重构） |
 | 22 | `LC_ALL=C.UTF-8 bash install/verify.sh` 报 `PATCH…: unbound variable` | macOS 自带 bash 3.2 在 UTF-8 locale 下把紧跟 `$VAR` 的多字节字符当成变量名的一部分（`$PATCH（存在）`）；`set -u` 直接判定未定义 | 全部 shell 脚本里的 `$VAR` 改为 `${VAR}`（15 处）；并加静态扫描 + C.UTF-8 下真实跑脚本的行为测试 → `tests/shell-scripts.test.mjs` |
 | 23 | 发布包缺少 `docs/plugin.md` | `package.json.files` 没写 `docs/**` | 补上，并用 `npm pack --dry-run --json` 断言真实打包列表包含 docs 与各入口 → `tests/package-files.test.mjs` |
+| 24 | 全新安装时 `pnpm add` / `pnpm install` 全部失败（`ERR_PNPM_UNEXPECTED_STORE`） | Profile 里**已有** node_modules 时，pnpm 拒绝换 store；而脚本从普通终端跑时 pnpm 会按「项目所在卷」另选一个 store，与既有 node_modules 记录的 store 不一致 | install.sh 从 `profiles/<p>/node_modules/.modules.yaml`（内容是 JSON）读出既有 `storeDir`，显式 `--store-dir` 复用 → `tests/install-script.test.mjs` |
+| 25 | 明明旧桥接已停用，安装脚本仍告警「检测到旧的企微桥接插件行」 | `grep -q "$LEGACY_MARK"` 把**注释里**的历史提及也当成启用中 | 只看未注释行（`grep -v '^[[:space:]]*#'`）→ `tests/install-script.test.mjs`（注释/启用两种用例） |
 
 ### C. 一条不成立、但已保留的写法（诚实记录）
 

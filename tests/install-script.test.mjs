@@ -156,3 +156,93 @@ test('install.sh：显式 DSH_HOME 指向不存在的 Profile 时，报错并给
     fs.rmSync(bin, { recursive: true, force: true });
   }
 });
+
+// ── 真实环境踩到的两个坑（2026-09 全新安装时复现）────────────────────────────
+
+const STORE_AWARE_COREPACK = `#!/bin/sh
+echo "$*" >> "$FAKE_PNPM_LOG"
+# 模拟 pnpm：Profile 里已有 node_modules 且没显式给 --store-dir 时拒绝换 store
+case " $* " in
+  *" --store-dir "*) : ;;
+  *)
+    if [ -f "$PWD/node_modules/.modules.yaml" ]; then
+      echo "ERR_PNPM_UNEXPECTED_STORE" >&2
+      exit 1
+    fi
+    ;;
+esac
+# 注意：显式 store 会被插到子命令之前（pnpm --store-dir X add …），
+# 所以不能假设 add 一定在 $2。
+case " $* " in
+  *" add "*)
+    mkdir -p "$PWD/node_modules"
+    ln -sfn "$PLUGIN_FOR_TEST" "$PWD/node_modules/dsh-wecom-obsidian"
+    ;;
+esac
+exit 0
+`;
+
+test('install.sh：复用 Profile 既有 pnpm store（ERR_PNPM_UNEXPECTED_STORE 回归）', () => {
+  const home = makeHome();
+  // 复刻真实形态：既有 node_modules 是用另一个 store 装的
+  const store = path.join(home, 'other-store');
+  fs.mkdirSync(store, { recursive: true });
+  const modulesDir = path.join(home, 'profiles', 'web', 'node_modules');
+  fs.mkdirSync(modulesDir, { recursive: true });
+  fs.writeFileSync(path.join(modulesDir, '.modules.yaml'),
+    `${JSON.stringify({ packageManager: 'pnpm@11.7.0', storeDir: store }, null, 2)}\n`);
+  const log = path.join(home, 'pnpm.log');
+  const bin = makeFakeBin(STORE_AWARE_COREPACK);
+  try {
+    const proc = runInstall({ home, bin, log });
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.ok(calls.some((line) => line.includes(`--store-dir ${store}`)),
+      `必须把既有 store 显式传给 pnpm，实际：${JSON.stringify(calls)}`);
+    assert.equal(proc.status, 0, proc.stdout + proc.stderr);
+    assert.match(proc.stdout, /复用既有 pnpm store/);
+    assert.match(proc.stdout, /安装完成/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('install.sh：旧桥接行只出现在注释里时不得误报冲突', () => {
+  const home = makeHome();
+  const patch = path.join(home, 'profiles', 'web', 'cordis.patch.yml');
+  fs.writeFileSync(patch, [
+    '# 旧 @local/dsh-wecom-aibot-host 运行入口已于 2026-09-14 停用。',
+    '# 企微长连接统一由 bundle dsh-wecom-obsidian 托管。',
+    '[]',
+    '',
+  ].join('\n'));
+  const bin = makeFakeBin(OK_COREPACK);
+  try {
+    const proc = runInstall({ home, bin, log: path.join(home, 'pnpm.log') });
+    const out = proc.stdout + proc.stderr;
+    assert.doesNotMatch(out, /检测到旧的企微桥接插件行/, '注释里的提及不应触发冲突告警');
+    assert.equal(proc.status, 0, out);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('install.sh：旧桥接行真的启用时仍然告警', () => {
+  const home = makeHome();
+  const patch = path.join(home, 'profiles', 'web', 'cordis.patch.yml');
+  fs.writeFileSync(patch, [
+    '- id: legacy-bridge',
+    "  name: '@local/dsh-wecom-aibot-host'",
+    '  config: {}',
+    '',
+  ].join('\n'));
+  const bin = makeFakeBin(OK_COREPACK);
+  try {
+    const proc = runInstall({ home, bin, log: path.join(home, 'pnpm.log') });
+    assert.match(proc.stdout + proc.stderr, /检测到旧的企微桥接插件行/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+});

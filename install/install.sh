@@ -256,9 +256,29 @@ elif command -v corepack >/dev/null 2>&1; then
   PNPM=(corepack pnpm)
 fi
 
+# pnpm store：Profile 里**已有** node_modules 时，pnpm 拒绝改用另一个 store
+# （ERR_PNPM_UNEXPECTED_STORE，真实踩过：脚本从普通终端跑，pnpm 按「项目所在卷」
+# 选 store，而既有 node_modules 是用 home store 装的 → pnpm add/install 全失败）。
+# 既有 store 记录在 node_modules/.modules.yaml（内容是 JSON），显式复用它。
+EXISTING_STORE=""
+MODULES_META="$PROFILE_DIR/node_modules/.modules.yaml"
+if [ -f "$MODULES_META" ]; then
+  EXISTING_STORE="$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).storeDir||"")}catch{}' "$MODULES_META" 2>/dev/null || true)"
+  if [ -n "$EXISTING_STORE" ] && [ -d "$EXISTING_STORE" ]; then
+    say "复用既有 pnpm store：$EXISTING_STORE"
+  else
+    EXISTING_STORE=""
+  fi
+fi
+
 if [ "${#PNPM[@]}" -gt 0 ]; then
+  # 用数组拼命令（`${PNPM_STORE[@]+…}` 的空数组展开在 bash 3.2 + set -u 下会报错）
+  PNPM_CMD=("${PNPM[@]}")
+  if [ -n "$EXISTING_STORE" ]; then
+    PNPM_CMD+=(--store-dir "$EXISTING_STORE")
+  fi
   say "把插件登记为 Profile 依赖（link:${PLUGIN_DIR}）…"
-  ( cd "$PROFILE_DIR" && "${PNPM[@]}" add "link:$PLUGIN_DIR" --silent ) \
+  ( cd "$PROFILE_DIR" && "${PNPM_CMD[@]}" add "link:$PLUGIN_DIR" --silent ) \
     || warn "pnpm add 失败；稍后由下面的依赖表兜底写入"
 else
   warn "本机没有 pnpm / corepack，跳过 pnpm add；依赖表仍会写入，但需要你手工执行一次 pnpm install"
@@ -331,7 +351,7 @@ if [ -e "$PROFILE_DIR/node_modules/$PACKAGE_NAME/package.json" ]; then
   PROFILE_LINKED=1
 elif [ "${#PNPM[@]}" -gt 0 ]; then
   say "Profile 里还没有插件链接，补一次 pnpm install…"
-  ( cd "$PROFILE_DIR" && "${PNPM[@]}" install --silent ) || warn "pnpm install 失败"
+  ( cd "$PROFILE_DIR" && "${PNPM_CMD[@]}" install --silent ) || warn "pnpm install 失败"
   if [ -e "$PROFILE_DIR/node_modules/$PACKAGE_NAME/package.json" ]; then
     PROFILE_LINKED=1
   fi
@@ -399,7 +419,9 @@ fi
 # 只允许一个连接，后连的会把先连的顶下线。因此必须二选一。
 PATCH_FILE="$PROFILE_DIR/cordis.patch.yml"
 LEGACY_MARK="@local/dsh-wecom-aibot-host"
-if [ -f "$PATCH_FILE" ] && grep -q "$LEGACY_MARK" "$PATCH_FILE"; then
+# 只看**未注释**的行：历史卸载会留下 `# 旧 @local/dsh-wecom-aibot-host …已停用`，
+# 直接 grep 会把它当成「仍在启用」而误报（真实踩过）。
+if [ -f "$PATCH_FILE" ] && grep -v '^[[:space:]]*#' "$PATCH_FILE" | grep -qF "$LEGACY_MARK"; then
   warn "检测到旧的企微桥接插件行（${LEGACY_MARK}）。"
   warn "同一个机器人不允许两条长连接（后连的会把先连的顶下线），请二选一。"
   if [ "${WECOM_OBSIDIAN_DISABLE_LEGACY:-0}" = "1" ]; then
