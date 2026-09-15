@@ -1,0 +1,69 @@
+# ===== macOS =====
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+*.icloud
+
+# ===== 编辑器 / IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# ===== Obsidian =====
+# 工作区布局与缓存是本机状态，不纳入版本管理
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+.trash/
+# 若不希望同步第三方插件与主题，取消下面两行注释
+# .obsidian/plugins/
+# .obsidian/themes/
+
+# ===== 日志 / 临时文件 =====
+*.log
+logs/
+tmp/
+.tmp/
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# ===== 密钥 / 本地环境变量 =====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+!*.pub
+
+# ===== Node.js =====
+node_modules/
+dist/
+build/
+coverage/
+.npm/
+.pnpm-store/
+*.tsbuildinfo
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ===== Windows =====
+Thumbs.db
+desktop.ini
