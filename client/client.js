@@ -450,6 +450,30 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 删除某台机器人后，重排覆盖表的键，使其与新的 `bots` 下标继续对齐。
+     *
+     * `botOverrides` 按**下标字符串**存键，所以增删机器人时不同步重排，覆盖就会
+     * 整体错位：删掉第 0 个之后，原本属于第 1 个的覆盖（**含密钥与白名单策略**）
+     * 会套到新的第 0 个身上 —— 等于把凭证给了另一台机器人。
+     *
+     * 纯函数，便于单测。
+     *
+     * @param {object|undefined} overrides - 现有覆盖表（键为下标字符串）。
+     * @param {number} removedIndex - 被删除的下标。
+     * @returns {object} 重排后的覆盖表。
+     */
+    function reindexOverridesAfterRemove(overrides, removedIndex) {
+      const src = (overrides && typeof overrides === 'object') ? overrides : {};
+      const next = {};
+      for (const [key, val] of Object.entries(src)) {
+        const i = Number(key);
+        if (!Number.isInteger(i) || i === removedIndex) continue;
+        next[String(i > removedIndex ? i - 1 : i)] = val;
+      }
+      return next;
+    }
+
+    /**
      * 把「配置页草稿」合并进「已保存的机器人配置」。
      *
      * 配置页只编辑三项（名称 / Bot ID / Secret），其余字段：
@@ -584,7 +608,7 @@ window.__ModuleLoader__.load({
         chatCwd: value.chatCwd || '',
         chatPreset: value.chatPreset || 'cordis',
         collectorCwd: value.collectorCwd || '',
-        inboxDir: value.inboxDir || '',
+        inboxDir: value.inboxDir || '{top}/attachments',
         replyAck: value.replyAck !== false,
         store: {
           folderPattern: store.folderPattern || '{top}/{YYYY}/{MM}/{name}',
@@ -723,16 +747,10 @@ window.__ModuleLoader__.load({
        * @param {number} removedIndex - 被删除的下标。
        * @returns {object} 重排后的覆盖表。
        */
-      const overridesAfterRemove = useCallback((removedIndex) => {
-        const src = (value && typeof value.botOverrides === 'object' && value.botOverrides) || EMPTY;
-        const next = {};
-        for (const [key, val] of Object.entries(src)) {
-          const i = Number(key);
-          if (!Number.isInteger(i) || i === removedIndex) continue;
-          next[String(i > removedIndex ? i - 1 : i)] = val;
-        }
-        return next;
-      }, [value]);
+      const overridesAfterRemove = useCallback(
+        (removedIndex) => reindexOverridesAfterRemove(value && value.botOverrides, removedIndex),
+        [value],
+      );
 
       const addBot = useCallback(async () => {
         const index = valueBots.length;
@@ -787,10 +805,11 @@ window.__ModuleLoader__.load({
         try {
           const ops = [
             { op: 'set', path: ['vaultRoot'], value: scalars.vaultRoot },
-            { op: 'set', path: ['workspaceRoot'], value: scalars.workspaceRoot },
-            // 注意：**不写** chatCwd / chatPreset / collectorCwd / inboxDir。
-            // 这四项已从配置页移除、改由插件自动推断；本页不碰它们，
-            // 手改过 settings.yaml 的值因此不会被一次「保存路径规则」冲掉。
+            // 媒体收件目录（库内路径）由本页维护。
+            { op: 'set', path: ['inboxDir'], value: scalars.inboxDir || '{top}/attachments' },
+            // 注意：**不写** workspaceRoot / chatCwd / chatPreset / collectorCwd。
+            // 这四项已从配置页移除（自动推断或保持现值）；本页不碰它们，
+            // 手改过 settings.yaml 的值因此不会被一次「保存」冲掉。
             { op: 'set', path: ['replyAck'], value: !!scalars.replyAck },
             { op: 'set', path: ['store'], value: { ...scalars.store } },
             { op: 'set', path: ['pipeline'], value: { ...scalars.pipeline } },
@@ -990,11 +1009,13 @@ window.__ModuleLoader__.load({
 
         // ── Obsidian 与存储路径 ────────────────────────────────────────────
         e('div', { style: css.card },
-          e('h3', { style: css.cardTitle }, 'Obsidian 导入位置与存储路径规则'),
+          e('h3', { style: css.cardTitle }, 'Obsidian 导入位置与收藏路径规则'),
+          // 字段顺序 = 用户使用时的思考顺序：先「库在哪」，再「库内怎么分」，
+          // 然后「图片放哪」「其它文件收哪」。
           e('div', { style: css.grid },
             e(Field, {
               label: 'Obsidian 导入地址（库根目录）',
-              desc: '笔记最终写入的 Obsidian Vault 绝对路径，例如 /Volumes/…/01_Knowledge。',
+              desc: '笔记最终写入的 Obsidian Vault 绝对路径，例如 /path/to/YourVault。',
             },
               e(TextInput, {
                 value: scalars.vaultRoot,
@@ -1003,8 +1024,19 @@ window.__ModuleLoader__.load({
               }),
             ),
             e(Field, {
-              label: '存储路径规则',
-              desc: '支持 {top} 顶层目录、{YYYY} 年、{MM} 月、{platform} 平台、{name} 笔记名。默认「年/月」。',
+              label: '顶层目录名',
+              desc: '库内一级目录，即规则里 {top} 的取值。单层目录名。',
+            },
+              e(TextInput, {
+                value: scalars.store.topFolder,
+                placeholder: '01_文章分享',
+                onChange: (text) => patchNested('store', { topFolder: text }),
+              }),
+            ),
+            e(Field, {
+              label: '收藏途径规则',
+              desc: '入库时的目录结构。支持 {top} 顶层目录、{YYYY} 年、{MM} 月、'
+                + '{platform} 平台、{name} 笔记名。默认「年/月」。',
             },
               e(TextInput, {
                 value: scalars.store.folderPattern,
@@ -1012,14 +1044,10 @@ window.__ModuleLoader__.load({
                 onChange: (text) => patchNested('store', { folderPattern: text }),
               }),
             ),
-            e(Field, { label: '顶层目录名', desc: '库内一级目录，即规则里 {top} 的取值。单层目录名。' },
-              e(TextInput, {
-                value: scalars.store.topFolder,
-                placeholder: '01_文章分享',
-                onChange: (text) => patchNested('store', { topFolder: text }),
-              }),
-            ),
-            e(Field, { label: '资源目录名', desc: '每篇笔记随包的图片目录名。单层目录名。' },
+            e(Field, {
+              label: '文章图片路径名',
+              desc: '每篇笔记随包的图片目录名。单层目录名。',
+            },
               e(TextInput, {
                 value: scalars.store.assetsDir,
                 placeholder: 'assets',
@@ -1027,23 +1055,26 @@ window.__ModuleLoader__.load({
               }),
             ),
             e(Field, {
-              label: '采集工作目录',
-              desc: '脚本与中间产物（staging/logs/去重账本）所在目录。留空用 '
-                + '${DSH_HOME}/wecom-obsidian/workspace。改这里等于把整套采集产物搬到别处。',
+              label: '其他文件收件目录',
+              desc: '企微发来的图片/文件落盘位置。默认 `<库根>/<顶层目录>/attachments`，'
+                + '即文件与笔记同在 Obsidian 库内。占位符：{top} 收藏主目录 · {vault} 库根 · '
+                + '{workspace} 插件工作区；相对路径按库根解析。',
             },
               e(TextInput, {
-                value: scalars.workspaceRoot,
-                placeholder: '（默认：${DSH_HOME}/wecom-obsidian/workspace）',
-                onChange: (text) => patchScalar({ workspaceRoot: text }),
+                value: scalars.inboxDir,
+                placeholder: '{top}/attachments',
+                onChange: (text) => patchScalar({ inboxDir: text }),
               }),
             ),
           ),
-          // 其余字段（媒体收件目录 / 对话工作目录 / 对话 Agent 预设）已按
-          // 「自动推断」处理，不再让用户填 —— 见下方说明。它们仍留在设置文档里，
-          // 需要时可手改 settings.yaml。
+          // 下面这些字段已按「自动推断」处理，不再让用户填，
+          // 但它们仍留在设置文档里，需要时可直接编辑：
+          //   workspaceRoot  —— 采集工作目录（脚本与中间产物，改它等于搬家）
+          //   chatCwd        —— 对话工作目录（同采集工作目录）
+          //   chatPreset     —— 对话 Agent 预设（cordis）
           e('p', { style: css.desc },
-            '已自动处理、无需配置：媒体收件目录（工作区 staging/inbox）· '
-            + '对话工作目录（同采集工作目录）· 对话 Agent 预设（cordis）。'
+            '已自动处理、无需配置：采集工作目录（${DSH_HOME}/wecom-obsidian/workspace）· '
+            + '对话工作目录 · 对话 Agent 预设。'
             + '如需改动，直接编辑设置文档里的对应字段（本页保存时**不会**覆盖它们）。'),
           e('div', { style: css.actions },
             e(Toggle, {
@@ -1156,6 +1187,13 @@ window.__ModuleLoader__.load({
         inject: () => injected,
       }, WecomObsidianSection));
     }
+
+    // 测试接缝：把纯函数挂到 globalThis，供 `tests/unit.test.mjs` 断言。
+    // 不参与运行时逻辑，仅为「让静默出错的函数能被测试盯住」而存在
+    // （覆盖表错位、路径解析这类问题不会抛错，只会写错位置）。
+    try {
+      globalThis.__wecomObsidianInternals = { reindexOverridesAfterRemove, mergeBotEdit, defaultBot };
+    } catch { /* 无 globalThis 的环境跳过 */ }
 
     return { apply, inject };
   },

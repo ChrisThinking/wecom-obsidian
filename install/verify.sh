@@ -135,6 +135,16 @@ for f in install/*.sh pipeline/scripts/convert/install-deps.sh; do
 done
 [ "$SH_BAD" = "0" ] && ok "shell 脚本全部可解析"
 
+# ── 5b. 单元测试（纯函数回归：路径解析 / 覆盖表重排 / 包声明）───────────────
+head_ "5b. 单元测试"
+if node --test tests/unit.test.mjs >/tmp/wecom-verify-test.log 2>&1; then
+  pass_line="$(grep -E '^. pass ' /tmp/wecom-verify-test.log | tail -1 | tr -d ' ')"
+  ok "单元测试全部通过（${pass_line:-pass}）"
+else
+  bad "单元测试失败，详见 /tmp/wecom-verify-test.log"
+  tail -20 /tmp/wecom-verify-test.log | sed 's/^/      /'
+fi
+
 # ── 6. 必需文件 ─────────────────────────────────────────────────────────────
 head_ "6. 必需文件"
 for f in readme.md LICENSE package.json bundle/cordis.patch.yml bundle/agent/agent.cordis.yml \

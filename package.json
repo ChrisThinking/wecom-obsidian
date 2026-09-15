@@ -30,8 +30,8 @@
     "bundle/**",
     "pipeline/**",
     "install/**",
-    "README.md",
-    "LICENSE"
+    "tests/**",
+    "README.md"
   ],
   "dsh": {
     "bundle": {
@@ -50,7 +50,8 @@
   "scripts": {
     "install:plugin": "bash install/install.sh",
     "uninstall:plugin": "bash install/uninstall.sh",
-    "check": "node --check lib/index.js && node --check lib/workspace.js && node --check lib/session-router.js && node --check lib/wecom-client.js && node --check lib/settings-ns.js && node --check client/client.js"
+    "check": "npm run test",
+    "test": "node --test tests/unit.test.mjs"
   },
   "dependencies": {
     "@wecom/aibot-node-sdk": "^1.0.7"
