@@ -10,6 +10,8 @@
  *   2. `reindexOverridesAfterRemove` —— 覆盖表按下标存键，删除机器人后不重排
  *      会让**密钥/白名单错位到别的机器人**。
  *   3. `resolveRelDir`（Python 侧）—— 由 `pipeline/scripts/tests/test_path_rules.py` 覆盖。
+ *   4. `package-lock.json` —— 依赖版本可复现性。缺 lock 时 `^` 区间会在 clone 后
+ *      解析到更新的版本，症状是「本机正常、别人装完就报错」，同样属于静默出错。
  *
  * 用法：
  *   node --test pipeline/tests/*.test.mjs      # 或
@@ -162,6 +164,53 @@ test('package.json：DSH 插件包声明完整（可发布/可安装）', () => 
   const clientExport = pkg.exports?.['./client']?.default;
   assert.ok(clientExport && fs.existsSync(path.join(ROOT, clientExport)), 'exports["./client"] 必须指向存在的文件');
   assert.equal(pkg.dsh?.client?.platform, 'web');
+});
+
+/**
+ * 极简 semver 判定：只覆盖本仓库实际使用的 `^` / `~` / 精确版本三种写法，
+ * 其余复杂范围（`>=`、`||`、`1.x` 等）不做判定并返回 true —— 避免测试误报。
+ */
+const satisfiesRange = (range, version) => {
+  const m = /^([\^~]?)(\d+)\.(\d+)\.(\d+)$/.exec(String(range).trim());
+  const v = /^(\d+)\.(\d+)\.(\d+)/.exec(String(version).trim());
+  if (!m || !v) return true;
+  const op = m[1];
+  const want = [Number(m[2]), Number(m[3]), Number(m[4])];
+  const got = [Number(v[1]), Number(v[2]), Number(v[3])];
+  const cmp = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
+  if (cmp(got, want) < 0) return false;              // 低于下限
+  if (op === '') return cmp(got, want) === 0;        // 精确版本
+  if (op === '~') return got[0] === want[0] && got[1] === want[1];  // ~ 锁次版本
+  return want[0] > 0                                 // ^ 锁主版本（0.x 时锁次版本）
+    ? got[0] === want[0]
+    : got[0] === 0 && got[1] === want[1];
+};
+
+test('package-lock.json：必须提交且与 package.json 依赖一致（否则 clone 后装出不同版本）', () => {
+  const lockPath = path.join(ROOT, 'package-lock.json');
+  assert.ok(fs.existsSync(lockPath), 'package-lock.json 必须存在（依赖版本需可复现）');
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  assert.ok(lock.lockfileVersion >= 2, `lockfileVersion 应 >= 2（当前 ${lock.lockfileVersion}）`);
+  const root = lock.packages?.[''];
+  assert.ok(root, 'lock 缺少根包条目 packages[""]');
+  assert.equal(root.name, pkg.name, 'lock 根包 name 必须与 package.json 一致');
+  assert.equal(root.version, pkg.version, 'lock 根包 version 必须与 package.json 一致');
+  // 依赖集合一一对应：防止改了 package.json 却忘了同步 lock
+  assert.deepEqual(
+    root.dependencies ?? {}, pkg.dependencies ?? {},
+    'lock 根包 dependencies 必须与 package.json 完全一致',
+  );
+  // 每个运行时依赖都必须钉死到确切版本，且落在声明的区间内
+  for (const [name, range] of Object.entries(pkg.dependencies ?? {})) {
+    const entry = lock.packages?.[`node_modules/${name}`];
+    assert.ok(entry, `lock 缺少 ${name} 的解析结果`);
+    assert.match(entry.version, /^\d+\.\d+\.\d+/, `${name} 在 lock 中必须钉死确切版本`);
+    assert.ok(
+      satisfiesRange(range, entry.version),
+      `${name} 锁定版本 ${entry.version} 不满足 package.json 声明的 ${range}`,
+    );
+  }
 });
 
 test('客户端 bundle：module id 必须与包名一致（否则浏览器加载失败）', () => {
