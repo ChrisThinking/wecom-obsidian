@@ -200,14 +200,47 @@ test('applyBotOp：删除不修改其它机器人的密钥（原样返回）', (
   assert.equal(next.botOverrides['1'], undefined);
 });
 
-test('applyBotOp：新增按当前长度追加，并清掉该下标可能残留的旧覆盖', () => {
+test('applyBotOp：新增挑最小空闲序号，并清掉该下标可能残留的旧覆盖', () => {
   const state = { bots: [{ label: 'A' }], botOverrides: { 0: { secret: 'S0' }, 1: { secret: 'STALE' } } };
   const next = applyBotOp(state, 'add');
   assert.equal(next.bots.length, 2);
-  assert.equal(next.bots[1].label, '机器人2');
+  assert.equal(next.bots[1].label, '机器人1', '默认序号 1 空闲就用它');
   assert.equal(next.bots[1].secret, '', '新增骨架不带密钥');
   assert.equal(next.botOverrides['1'], undefined, '「删掉又新增」不能继承上一个机器人的覆盖');
   assert.equal(next.botOverrides['0'].secret, 'S0', '其它机器人的密钥不受影响');
+});
+
+test('applyBotOp：三台删中间再新增，名称与会话 id 都不重复（回归）', () => {
+  let state = {
+    bots: [defaultBotConfig(1), defaultBotConfig(2), defaultBotConfig(3)],
+    botOverrides: { 0: { secret: 'S1' }, 1: { secret: 'S2' }, 2: { secret: 'S3' } },
+  };
+  // 删掉第二台（下标 1）后再新增：旧实现用 length+1=3 → 又造出一台「机器人3」，
+  // sessionId 与既有的 wecom-bot3 完全相同（两台机器人共用同一段上下文）。
+  state = applyBotOp(state, 'remove', 1);
+  state = applyBotOp(state, 'add');
+  const labels = state.bots.map((b) => b.label);
+  const sessions = state.bots.map((b) => b.sessionId);
+  const collectors = state.bots.map((b) => b.collectorSessionId);
+  assert.deepEqual(labels, ['机器人1', '机器人3', '机器人2'], '补回被删掉的序号 2');
+  assert.equal(new Set(labels).size, labels.length, '展示名不能重复');
+  assert.equal(new Set(sessions).size, sessions.length, 'sessionId 不能重复');
+  assert.equal(new Set(collectors).size, collectors.length, 'collectorSessionId 不能重复');
+  // 覆盖表随下标重排：被删的 S2 消失，S1/S3 跟着各自机器人走，新机器人无覆盖
+  assert.deepEqual(
+    [state.botOverrides['0'].secret, state.botOverrides['1'].secret, state.botOverrides['2']],
+    ['S1', 'S3', undefined],
+  );
+});
+
+test('applyBotOp：改名后的机器人按会话 id 避让（不只看 label）', () => {
+  const state = {
+    bots: [{ label: '甲', sessionId: 'wecom-bot1', collectorSessionId: 'wecom-bot1-collector' }],
+    botOverrides: {},
+  };
+  const next = applyBotOp(state, 'add');
+  assert.notEqual(next.bots[1].sessionId, 'wecom-bot1', '会话 id 必须避开已占用值');
+  assert.notEqual(next.bots[1].collectorSessionId, 'wecom-bot1-collector');
 });
 
 test('applyBotOp：下标越界 / 未知操作必须抛错（调用方据此丢弃该命令）', () => {

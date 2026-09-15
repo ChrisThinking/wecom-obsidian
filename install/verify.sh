@@ -61,11 +61,11 @@ else
   [ "$PRIV" = "true" ] && bad "private: true 会阻止 npm 发布" || ok "未标记 private"
 
   PATCH="$(node -p "require('./package.json').dsh?.bundle?.patch ?? ''")"
-  [ -n "$PATCH" ] && [ -f "$PATCH" ] && ok "dsh.bundle.patch → $PATCH（存在）" \
+  [ -n "$PATCH" ] && [ -f "$PATCH" ] && ok "dsh.bundle.patch → ${PATCH}（存在）" \
     || bad "dsh.bundle.patch 缺失或指向不存在的文件: '$PATCH'"
 
   CLIENT="$(node -p "require('./package.json').exports?.['./client']?.default ?? ''")"
-  [ -n "$CLIENT" ] && [ -f "$CLIENT" ] && ok "exports['./client'] → $CLIENT（存在）" \
+  [ -n "$CLIENT" ] && [ -f "$CLIENT" ] && ok "exports['./client'] → ${CLIENT}（存在）" \
     || bad "exports['./client'] 缺失或指向不存在的文件: '$CLIENT'"
 
   PLATFORM="$(node -p "require('./package.json').dsh?.client?.platform ?? ''")"
@@ -148,8 +148,9 @@ done
 # 发布前的最后一道闸：`npm test` 跑的就是 CI 那一套，必须全绿。
 head_ "5b. 测试套件"
 if npm test >/tmp/wecom-verify-test.log 2>&1; then
-  js_line="$(grep -E '^. pass ' /tmp/wecom-verify-test.log | tail -1 | tr -d ' ')"
-  py_line="$(grep -E '^OK' /tmp/wecom-verify-test.log | tail -1 | tr -d ' ')"
+  # 用 -oE 抽计数：`.` 在多字节 locale 下会匹配到非 ASCII 前缀，抽取结果不稳定
+  js_line="$(grep -oE 'pass [0-9]+' /tmp/wecom-verify-test.log | tail -1)"
+  py_line="$(grep -oE 'Ran [0-9]+ tests|^OK' /tmp/wecom-verify-test.log | tail -1)"
   ok "测试全部通过（JS ${js_line:-pass} · Python ${py_line:-OK}）"
 else
   bad "测试失败，详见 /tmp/wecom-verify-test.log"

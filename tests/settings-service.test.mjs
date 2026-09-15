@@ -204,10 +204,50 @@ test('设置服务：[修复后] 宿主消费 add 意图：新增不损坏其余
   assert.equal(await h.consume(), true);
   const value = h.resolved();
   assert.equal(value.bots.length, 4);
-  assert.equal(value.bots[3].label, '机器人4');
+  // 现有三台用的是自定义名称（甲/乙/丙）：新增取最小空闲序号即可，关键是**不重名/不重会话**。
+  const labels = value.bots.map((b) => b.label);
+  const sessions = value.bots.map((b) => b.sessionId);
+  assert.equal(new Set(labels).size, labels.length, '新增不能与现有机器人同名');
+  assert.equal(new Set(sessions).size, sessions.length, '会话 id 不能重复');
   assert.deepEqual(value.bots.slice(0, 3).map((b) => b.secret), ['SECRET-A', 'SECRET-B', 'SECRET-C']);
   assert.equal(value.botOverrides['2'].policy, 'allowlist', '其它机器人的覆盖字段必须原样保留');
   assert.deepEqual(value.botOps, [], '命令消费后必须清空');
+});
+
+test('设置服务：[修复后] 三台删中间再新增：会话 id 不重复且存活机器人 Secret 不丢', { skip }, async () => {
+  const h = await harness();
+  // 先把三台改成默认命名（机器人1/2/3 + wecom-botN），复刻用户报告的场景
+  const defaults = [1, 2, 3].map((n) => ({
+    label: `机器人${n}`,
+    enabled: true,
+    botId: `aib${n}`,
+    secret: `SECRET-${n}`,
+    sessionId: `wecom-bot${n}`,
+    collectorSessionId: `wecom-bot${n}-collector`,
+    collectEnabled: true,
+    mediaEnabled: true,
+    policy: 'open',
+    allowlist: [],
+    blockedReply: 'x',
+    provider: '',
+    model: '',
+    reasoningEffort: 'high',
+  }));
+  await h.scope.replace({ ...h.userSection(), bots: defaults, botOverrides: { 2: { secret: 'SECRET-3' } } });
+
+  await h.scope.replace({ ...h.userSection(), botOps: [{ op: 'remove', index: 1, nonce: 'n-rm' }] });
+  assert.equal(await h.consume(), true);
+  await h.scope.replace({ ...h.userSection(), botOps: [{ op: 'add', index: 2, nonce: 'n-add' }] });
+  assert.equal(await h.consume(), true);
+
+  const value = h.resolved();
+  const labels = value.bots.map((b) => b.label);
+  const sessions = value.bots.map((b) => b.sessionId);
+  assert.deepEqual(labels, ['机器人1', '机器人3', '机器人2']);
+  assert.equal(new Set(labels).size, 3);
+  assert.equal(new Set(sessions).size, 3, 'sessionId 重复会让两台机器人共用一段上下文');
+  // 存活机器人的 secret 原样保留（第三台的 secret 存在覆盖表里）
+  assert.deepEqual(value.bots.map((b) => b.secret), ['SECRET-1', 'SECRET-3', '']);
 });
 
 test('设置服务：[修复后] 宿主消费 remove 意图：剩余 Secret 随下标重排且不丢失', { skip }, async () => {

@@ -223,6 +223,11 @@ def sniff(data):
 
 
 def download_images(urls):
+    """下载全部图片。
+
+    返回 `lines` 为 `(status, fname_or_None, url)` 三元组：**失败项保留原始 url**，
+    由 Markdown 组装阶段写成外部图片引用，让 verify 拦下，而不是静默丢图。
+    """
     ok, fail, lines = 0, 0, []
     for i, u in enumerate(urls, start=1):
         try:
@@ -243,10 +248,10 @@ def download_images(urls):
                     status += ' ->converted png'
                 else:
                     status += ' (conversion failed, kept as-is)'
-            lines.append((status, 'image_%02d.%s' % (i, ext)))
+            lines.append((status, 'image_%02d.%s' % (i, ext), u))
             ok += 1
         except Exception as e:
-            lines.append(('FAIL image_%02d %r' % (i, e), None))
+            lines.append(('FAIL image_%02d %r（保留原 URL，Verify 将拦截）' % (i, e), None, u))
             fail += 1
     return ok, fail, lines
 
@@ -336,9 +341,13 @@ def main():
     if text_block:
         lines.append(text_block)
         lines.append('')
-    for _st, fname in img_lines:
+    for _st, fname, url in img_lines:
         if fname:
             lines.append('![](images/%s)' % fname)
+            lines.append('')
+        elif url:
+            # 下载失败的图保留原 URL：verify 的「外部 http(s) 图片链接」会判 FAIL。
+            lines.append('![](%s)' % url)
             lines.append('')
 
     md_title = wf.sanitize_name(title)   # 与 FORMAT/STORE 命名规则一致（禁符→_、压缩空白、上限 120）
@@ -358,13 +367,14 @@ def main():
                 '- 原始文件：`source_page.html`（%d 字节）\n- 图片：成功 %d / 失败 %d\n\n'
                 '## 图片明细\n\n%s\n'
                 % (URL, TYPE_NAME[stype], stype, title, author, publish, now, len(raw), ok, fail,
-                   '\n'.join('- %s' % s for s, _ in img_lines) or '- （无）'))
+                   '\n'.join('- %s' % row[0] for row in img_lines) or '- （无）'))
 
     print('type:', TYPE_NAME[stype], '| item_show_type:', stype)
     print('title:', title)
     print('author:', author, '| publish:', publish, '| biz:', biz)
     print('text chars:', len(text_block), '| images:', n_img)
-    for s, _ in img_lines:
+    for row in img_lines:
+        s = row[0]
         print(s)
     print('md written:', md_path)
 

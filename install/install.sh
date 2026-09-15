@@ -215,7 +215,7 @@ else
       target="$PLUGIN_NODE_MODULES/@deepseek-ai/$pkg"
       source="$DSH_MODULES/@deepseek-ai/$pkg"
       if [ ! -d "$source" ]; then
-        warn "  $DSH_MODULES 里没有 $pkg，跳过"
+        warn "  $DSH_MODULES 里没有 ${pkg}，跳过"
         continue
       fi
       if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
@@ -257,7 +257,7 @@ elif command -v corepack >/dev/null 2>&1; then
 fi
 
 if [ "${#PNPM[@]}" -gt 0 ]; then
-  say "把插件登记为 Profile 依赖（link:$PLUGIN_DIR）…"
+  say "把插件登记为 Profile 依赖（link:${PLUGIN_DIR}）…"
   ( cd "$PROFILE_DIR" && "${PNPM[@]}" add "link:$PLUGIN_DIR" --silent ) \
     || warn "pnpm add 失败；稍后由下面的依赖表兜底写入"
 else
@@ -307,7 +307,7 @@ for (let i = 0; i < lines.length; i += 1) {
 fs.writeFileSync(file, out.join('\n'));
 console.log('  已从 profile patch 去除重复行:', removed);
 NODE
-  say "composition 行只由插件 bundle 提供（备份：$PATCH_FILE.bak-dedup-$STAMP）"
+  say "composition 行只由插件 bundle 提供（备份：$PATCH_FILE.bak-dedup-${STAMP}）"
 fi
 
 # 依赖表兜底：即使 pnpm add 没跑成功，这里也写上 link 依赖，
@@ -373,9 +373,9 @@ else
   if "$PY" -c "import bs4" >/dev/null 2>&1; then
     say "beautifulsoup4 已在解释器里可用，跳过安装"
   elif PYTHONPATH="$PYLIBS" "$PY" -c "import bs4" >/dev/null 2>&1; then
-    say "beautifulsoup4 已在 $PYLIBS，跳过安装"
+    say "beautifulsoup4 已在 ${PYLIBS}，跳过安装"
   else
-    say "安装 beautifulsoup4 到 $PYLIBS（微信图文转换器需要）…"
+    say "安装 beautifulsoup4 到 ${PYLIBS}（微信图文转换器需要）…"
     "$PY" -m pip install --quiet --target "$PYLIBS" beautifulsoup4 \
       || warn "pip 安装失败。可稍后手工执行：
       $PY -m pip install --target \"$PYLIBS\" beautifulsoup4"
@@ -400,7 +400,7 @@ fi
 PATCH_FILE="$PROFILE_DIR/cordis.patch.yml"
 LEGACY_MARK="@local/dsh-wecom-aibot-host"
 if [ -f "$PATCH_FILE" ] && grep -q "$LEGACY_MARK" "$PATCH_FILE"; then
-  warn "检测到旧的企微桥接插件行（$LEGACY_MARK）。"
+  warn "检测到旧的企微桥接插件行（${LEGACY_MARK}）。"
   warn "同一个机器人不允许两条长连接（后连的会把先连的顶下线），请二选一。"
   if [ "${WECOM_OBSIDIAN_DISABLE_LEGACY:-0}" = "1" ]; then
     cp "$PATCH_FILE" "$PATCH_FILE.bak-wecom-obsidian-$STAMP"
@@ -415,7 +415,7 @@ const out = text.split('\n').map((line) => {
 });
 fs.writeFileSync(file, out.join('\n'));
 NODE
-    say "已停用旧桥接行（备份：$PATCH_FILE.bak-wecom-obsidian-$STAMP）"
+    say "已停用旧桥接行（备份：$PATCH_FILE.bak-wecom-obsidian-${STAMP}）"
   else
     warn "未自动停用。确认新插件可用后，手工把 $PATCH_FILE 里 $LEGACY_MARK 的行注释掉；"
     warn "或重跑本脚本时加 WECOM_OBSIDIAN_DISABLE_LEGACY=1 让脚本代劳。"
@@ -430,7 +430,7 @@ if [ "$PROFILE_LINKED" != "1" ]; then
 
 $(warn "安装未完成：插件没有被登记进 Profile。")
   Profile：$PROFILE_DIR
-  依赖表已写入，但 node_modules 里没有 $PACKAGE_NAME。
+  依赖表已写入，但 node_modules 里没有 ${PACKAGE_NAME}。
   请修复上面的报错后重跑：
       cd "$PROFILE_DIR" && pnpm install
       DSH_HOME="$DSH_HOME" bash "$SCRIPT_DIR/install.sh"

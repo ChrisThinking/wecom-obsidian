@@ -731,17 +731,16 @@ window.__ModuleLoader__.load({
       /**
        * 新增一台机器人：向宿主提交一条意图，宿主追加带默认值的新机器人。
        *
-       * 不在浏览器里拼默认值：多机器人下标由宿主按写入那一刻的列表长度决定，
-       * 否则「快速点两次新增」会用同一个下标互相覆盖。
+       * 不在浏览器里拼默认值：新机器人的**编号**由宿主按「最小空闲序号」决定
+       * （删除中间一台后补位，避免与既有机器人重名、会话 id 撞车）。
        */
       const addBot = useCallback(async () => {
-        const index = valueBots.length;
-        setSavingBot(index);
+        setSavingBot(valueBots.length);
         setBotMessage(null);
         try {
-          await requestBotOp('add', index);
+          await requestBotOp('add', -1);
           refreshNow();
-          setBotMessage({ kind: 'ok', text: `已新增机器人${index + 1}：填好「名称 / Bot ID / Secret」后点该卡片的「保存应用」。` });
+          setBotMessage({ kind: 'ok', text: '已新增一台机器人：填好「名称 / Bot ID / Secret」后点该卡片的「保存应用」。' });
         } catch (error) {
           setBotMessage({ kind: 'err', text: `新增失败：${String((error && error.message) || error)}` });
         } finally {

@@ -193,7 +193,7 @@ wecom-obsidian/
 
 | 路径 | 内容 |
 |---|---|
-| `${DSH_HOME}/wecom-obsidian/workspace/` | 工作区根（`OBS_WS_ROOT`）：脚本、staging、ledger |
+| `${DSH_HOME}/wecom-obsidian/workspace/` | 工作区根（`OBS_WS_ROOT`）：脚本、templates、rule_src、staging、ledger。**脚本每次物化都与插件包同步**（新增/覆盖更新/清理已删模板文件），升级后重启即生效；`staging/`、`logs/` 与自建文件不会被碰 |
 | `${DSH_HOME}/wecom-obsidian/health/<slug>.json` | 每个机器人在线状态（`state` / `lastHeartbeat` / `lastError`） |
 | `${DSH_HOME}/wecom-obsidian/control/<slug>.cmd` | 单实例控制口：写入 `start` / `stop` / `restart` |
 | `${DSH_HOME}/.agent-presets/wecom-obsidian-collector/` | 收藏 Agent 预设（安装脚本写入） |
@@ -266,6 +266,21 @@ grep -o "failed to load: [^\"]*" ~/Library/Logs/dsh/launchd-stderr.log | sort | 
 
 > 维护提示：`lib/bot-ops.js` 是**宿主侧**模块，客户端 bundle 不能 import 它；
 > 客户端只保留一份 `defaultBot`/`slugOf` 镜像（`tests/unit.test.mjs` 有用例断言两者同形）。
+
+### B5. 第二轮复查修复（2026-09，含回归测试）
+
+这一轮里有三条 P1 都是**用户可感知的错误结果**（跑旧脚本、上下文串用、笔记被覆盖），
+共同点是「单看代码很合理，只有把两次操作的时序叠起来才暴露」。
+
+| # | 症状 | 真实原因 | 改法 / 守护测试 |
+|---|---|---|---|
+| 17 | 升级插件并重启后，**仍在跑旧脚本**（改了代码但库里行为没变） | `materialize` 只「补齐缺失文件」，工作区里已存在的 `scripts/*.py` 永不覆盖 —— 而工作区那份才是脚本实际执行的位置 | `syncTemplateTree()`：模板树每次物化都**新增 + 覆盖更新 + 按清单清理已删文件**；`config/`（插件生成）与 `skills/`（唯一副本在包里）跳过；`staging/`、`logs/`、自建文件不动 → `tests/workspace-sync.test.mjs` |
+| 18 | 三台机器人删中间一台再新增 → 出现两台「机器人3」，`sessionId` 相同（**共用一段会话上下文**） | 新增序号用 `bots.length + 1`，而删除后长度与既有编号已经错位 | `nextBotIndex()`：取「最小空闲序号」，同时避开已占用的 label / sessionId / collectorSessionId → `tests/unit.test.mjs`、`tests/settings-service.test.mjs` |
+| 19 | 同标题文章互相覆盖：A 还没入库，B 的 FORMAT 把 A 的暂存包 `rmtree` 掉，最后 A 的任务存进的是 B | FORMAT 固定写 `staging/formatted/<platform>/<name>` 并在写入前删除同名目录 | 每次 FORMAT 独占一层运行目录 `<platform>/<run_id>/<name>`（叶子仍是文章名，STORE 仍按包目录名命名）；目标已存在时**拒绝覆盖**并 `FORMAT_FAIL` → `pipeline/tests/test_format_staging.py` |
+| 20 | 两条消息并发时，A 的最终回复被发进 B 的气泡（流 ID 串用） | `handleInbound` 在 `await ackStream()` 之后回读实例上的 `this.lastStreamId`，而它已被并发的另一条消息覆盖 | 直接用 `ackStream()` 的**返回值**；实例字段只留作兜底 → `tests/wecom-media.test.mjs` |
+| 21 | 图片下载失败仍全链报成功，入库笔记缺图 | 转换器在失败分支只打日志、**不把引用写回 Markdown**（日志却写着「保留原 URL」） | 头条/小红书/微信分享页失败时写入外部图片引用，`verify_note.py` 的「外部 http(s) 图片链接」随即判 FAIL、STORE 拒收整包 → `pipeline/tests/test_convert_media_failures.py`（含 `render_body`/`download_images` 可测化重构） |
+| 22 | `LC_ALL=C.UTF-8 bash install/verify.sh` 报 `PATCH…: unbound variable` | macOS 自带 bash 3.2 在 UTF-8 locale 下把紧跟 `$VAR` 的多字节字符当成变量名的一部分（`$PATCH（存在）`）；`set -u` 直接判定未定义 | 全部 shell 脚本里的 `$VAR` 改为 `${VAR}`（15 处）；并加静态扫描 + C.UTF-8 下真实跑脚本的行为测试 → `tests/shell-scripts.test.mjs` |
+| 23 | 发布包缺少 `docs/plugin.md` | `package.json.files` 没写 `docs/**` | 补上，并用 `npm pack --dry-run --json` 断言真实打包列表包含 docs 与各入口 → `tests/package-files.test.mjs` |
 
 ### C. 一条不成立、但已保留的写法（诚实记录）
 

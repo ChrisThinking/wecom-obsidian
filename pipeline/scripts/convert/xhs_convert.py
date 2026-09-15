@@ -91,6 +91,36 @@ def slug(s, n=40):
     return s[:n] or 'note'
 
 
+def download_images(imgs, img_dir):
+    """下载笔记图片。
+
+    @returns {{results: list, failed: list}} `results` 为 `(序号, 文件名或 None, 说明)`；
+        `failed` 为 `[(序号, 原始 url)]` —— 失败图**保留原 URL**，由组装阶段写成
+        外部图片引用，交给 verify 拦截（不能悄悄丢图还报成功）。
+    """
+    results = []
+    failed = []
+    for idx, im in enumerate(imgs, start=1):
+        u = im.get('urlDefault') or ''
+        if not u:
+            results.append((idx, None, 'no-url'))
+            continue
+        try:
+            data = fetch(u)
+            real = sniff(data)
+            ext = real if real in ('png', 'jpg', 'gif') else 'jpg'
+            fname = f'image_{idx:02d}.{ext}'
+            with open(os.path.join(img_dir, fname), 'wb') as f:
+                f.write(data)
+            results.append((idx, fname, f'OK {len(data)}B real={real}'))
+            log(f'  image_{idx:02d} OK {len(data)}B real={real}')
+        except Exception as e:
+            results.append((idx, None, f'FAIL {e!r}'))
+            failed.append((idx, u))
+            log(f'  image_{idx:02d} FAIL（保留原 URL，Verify 将拦截）{e!r}')
+    return {'results': results, 'failed': failed}
+
+
 def main():
     args = sys.argv[1:]
     dry = '--dry' in args
@@ -149,24 +179,9 @@ def main():
         f.write(html)
 
     # —— 下载图片 ——
-    results = []
-    for idx, im in enumerate(imgs, start=1):
-        u = im.get('urlDefault') or ''
-        if not u:
-            results.append((idx, None, 'no-url'))
-            continue
-        try:
-            data = fetch(u)
-            real = sniff(data)
-            ext = real if real in ('png', 'jpg', 'gif') else 'jpg'
-            fname = f'image_{idx:02d}.{ext}'
-            with open(os.path.join(img_dir, fname), 'wb') as f:
-                f.write(data)
-            results.append((idx, fname, f'OK {len(data)}B real={real}'))
-            log(f'  image_{idx:02d} OK {len(data)}B real={real}')
-        except Exception as e:
-            results.append((idx, None, f'FAIL {e!r}'))
-            log(f'  image_{idx:02d} FAIL {e!r}')
+    dl = download_images(imgs, img_dir)
+    results = dl['results']
+    failed_imgs = dl['failed']
 
     # —— webp → png ——
     if webp2png:
@@ -199,6 +214,11 @@ def main():
         if fname:
             lines.append(f'![{fname}](images/{fname})')
             lines.append('')
+    # 下载失败的图**保留原 URL**：verify 会以「外部 http(s) 图片链接」判 FAIL，
+    # 而不是悄悄丢图、再让后面全链报告成功。
+    for idx, url in failed_imgs:
+        lines.append(f'![image_{idx:02d}]({url})')
+        lines.append('')
     _fname = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', '_', title).strip() or '小红书笔记'
     md_path = os.path.join(art_dir, f'{_fname}.md')
     with open(md_path, 'w', encoding='utf-8') as f:

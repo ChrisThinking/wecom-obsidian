@@ -12,7 +12,7 @@ description: STORE 技能：把 Note Package 原子入库为 Stored Asset（veri
 
 ## 输入 → 输出契约
 ```
-Note Package（formatted/<platform>/<name>/）
+Note Package（formatted/<platform>/<run_id>/<name>/；run_id 是 FORMAT 的运行目录）
   → Stored Asset：<vault>/01_文章分享/<created年>/<月份>/<name>/
       <name>.md + assets/ + source_page.html
 ```

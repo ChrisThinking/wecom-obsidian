@@ -117,53 +117,15 @@ def sips_to_png(src, dst):
     return os.system('sips -s format png "%s" --out "%s" >/dev/null 2>&1' % (src, dst)) == 0
 
 
-def main():
-    args = [a for a in sys.argv[1:] if a != '--dry']
-    dry = '--dry' in sys.argv
-    if not args or not args[0].startswith(('http://', 'https://')):
-        log('用法: python3 convert_toutiao.py <URL> [输出包目录] [--dry]')
-        sys.exit(2)
-    url = args[0]
-    if len(args) > 1 and not args[1].startswith('http'):
-        pkg_dir = os.path.abspath(args[1])
-    else:
-        ws = _common.workspace_root()
-        base = os.path.join(ws, 'staging', 'converted', '网页')
-        ts = datetime.datetime.now(tz=CST).strftime('%Y%m%d_%H%M%S')
-        pkg_dir = os.path.join(base, '文章_%s_%d' % (ts, os.getpid()))
-    webp2png = bool(_common.convert_defaults().get('webp_to_png', True))
+def render_body(events, img_dir, webp2png, title):
+    """把正文事件渲染成 Markdown，并下载图片。
 
-    text, final, raw = get_page(url)
-    if text is None:
-        log('CONVERT_URL_FAIL 头条反爬壳页（动态 _\$jsvmprt），静态获取不可行；'
-            '请用浏览器打开原文或稍后重试: %s' % url)
-        sys.exit(2)
+    **失败的图保留原始 URL**（写成外部图片引用）：`verify_note.py` 会以
+    「存在外部 http(s) 图片链接」判 FAIL，从而拦住「悄悄丢图、全链却报告成功」。
+    历史实现只打日志、不写引用，图没了也没人知道。
 
-    m_title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', text, re.I)
-    if not m_title:
-        m_title = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', text, re.I)
-    m_t = re.search(r'<title[^>]*>([^<]+)</title>', text, re.I)
-    title = htmlmod.unescape(m_title.group(1)).strip() if m_title else (
-        htmlmod.unescape(m_t.group(1)).strip() if m_t else '头条文章')
-    title = re.sub(r'[_-]\s*(今日头条|头条)$', '', title).strip()
-    m_pub = re.search(r'<meta[^>]+property=["\']article:published_time["\'][^>]+content=["\']([^"\']+)', text, re.I)
-    published = m_pub.group(1)[:10] if m_pub else ''
-
-    if dry:
-        body = clean_body(text)
-        evs = collect_events(body)
-        log('[dry] title=%r final=%s 正文事件=%d（p/h=%d, img=%d）published=%s'
-            % (title, final, len(evs), sum(1 for e in evs if e[0] != 'img'),
-               sum(1 for e in evs if e[0] == 'img'), published))
-        return 0
-
-    os.makedirs(pkg_dir, exist_ok=True)
-    with open(os.path.join(pkg_dir, 'source_page.html'), 'wb') as f:
-        f.write(raw)
-
-    body = clean_body(text)
-    events = collect_events(body)
-    img_dir = os.path.join(pkg_dir, 'images')
+    @returns {(list, list)} `(markdown 行, 失败图片 URL 列表)`
+    """
     os.makedirs(img_dir, exist_ok=True)
     img_map = {}
     n_img = 0
@@ -198,13 +160,67 @@ def main():
                 lines.append('')
             except Exception as e:
                 fails.append(val)
-                log('  img FAIL（保留原 URL）: %r' % e)
+                # **真的**保留原 URL（而不是只写日志）：verify 的「外部 http(s)
+                # 图片链接」检查会据此把这次转换拦下。
+                lines.append('![图片](%s)' % val)
+                lines.append('')
+                log('  img FAIL（保留原 URL，Verify 将拦截）: %r' % e)
         else:
             lines.append(val)
             lines.append('')
+    return lines, fails
+
+
+def main():
+    args = [a for a in sys.argv[1:] if a != '--dry']
+    dry = '--dry' in sys.argv
+    if not args or not args[0].startswith(('http://', 'https://')):
+        log('用法: python3 convert_toutiao.py <URL> [输出包目录] [--dry]')
+        sys.exit(2)
+    url = args[0]
+    if len(args) > 1 and not args[1].startswith('http'):
+        pkg_dir = os.path.abspath(args[1])
+    else:
+        ws = _common.workspace_root()
+        base = os.path.join(ws, 'staging', 'converted', '网页')
+        ts = datetime.datetime.now(tz=CST).strftime('%Y%m%d_%H%M%S')
+        pkg_dir = os.path.join(base, '文章_%s_%d' % (ts, os.getpid()))
+    webp2png = bool(_common.convert_defaults().get('webp_to_png', True))
+
+    text, final, raw = get_page(url)
+    if text is None:
+        log('CONVERT_URL_FAIL 头条反爬壳页（动态 _$jsvmprt），静态获取不可行；'
+            '请用浏览器打开原文或稍后重试: %s' % url)
+        sys.exit(2)
+
+    m_title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', text, re.I)
+    if not m_title:
+        m_title = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', text, re.I)
+    m_t = re.search(r'<title[^>]*>([^<]+)</title>', text, re.I)
+    title = htmlmod.unescape(m_title.group(1)).strip() if m_title else (
+        htmlmod.unescape(m_t.group(1)).strip() if m_t else '头条文章')
+    title = re.sub(r'[_-]\s*(今日头条|头条)$', '', title).strip()
+    m_pub = re.search(r'<meta[^>]+property=["\']article:published_time["\'][^>]+content=["\']([^"\']+)', text, re.I)
+    published = m_pub.group(1)[:10] if m_pub else ''
+
+    if dry:
+        body = clean_body(text)
+        evs = collect_events(body)
+        log('[dry] title=%r final=%s 正文事件=%d（p/h=%d, img=%d）published=%s'
+            % (title, final, len(evs), sum(1 for e in evs if e[0] != 'img'),
+               sum(1 for e in evs if e[0] == 'img'), published))
+        return 0
+
+    os.makedirs(pkg_dir, exist_ok=True)
+    with open(os.path.join(pkg_dir, 'source_page.html'), 'wb') as f:
+        f.write(raw)
+
+    body = clean_body(text)
+    events = collect_events(body)
     if not events:
         log('CONVERT_URL_FAIL 页面无正文事件（结构变化？）：%s' % final)
         sys.exit(2)
+    lines, _fails = render_body(events, os.path.join(pkg_dir, 'images'), webp2png, title)
 
     md_path = os.path.join(pkg_dir, title.replace('/', '_') + '.md')
     with open(md_path, 'w', encoding='utf-8') as f:

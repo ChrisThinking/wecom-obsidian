@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import sys
+import uuid
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -170,9 +171,20 @@ def main():
 
     created = wf.now_cst().strftime('%Y-%m-%dT%H:%M:%S')
     name = wf.sanitize_name(title)
-    out_pkg = os.path.join(out_base, meta['platform'], name)
-    if os.path.isdir(out_pkg):
-        shutil.rmtree(out_pkg)
+    # 每次 FORMAT 落进一个**本次运行独有**的父目录。
+    #
+    # 为什么不能直接 `out_base/<platform>/<name>` + 覆盖：同标题的两篇文章可能
+    # 同时在流水线里（A 还没入库，B 就格式化了）。旧实现会把同名的 A 包整个
+    # rmtree 掉，于是 A 的 STORE 实际存进去的是 B 的内容（真实踩过）。
+    # 叶子目录仍是 `<name>` —— STORE 用包目录名作 note 名，不能带随机后缀；
+    # 多出来的这一层只是 staging 里的运行目录，不影响最终入库路径。
+    run_dir = '%s_%d_%s' % (
+        wf.now_cst().strftime('%Y%m%d_%H%M%S'), os.getpid(), uuid.uuid4().hex[:6])
+    out_pkg = os.path.join(out_base, meta['platform'], run_dir, name)
+    if os.path.exists(out_pkg):
+        # 绝不再静默覆盖：唯一化之后还撞上，说明有异常，让调用方看到。
+        print('FORMAT_FAIL 目标目录已存在（拒绝覆盖）: %s' % out_pkg)
+        sys.exit(2)
     os.makedirs(out_pkg)
     # path = Note 元数据快照，必须与 STORE 的落点**完全一致**。
     #

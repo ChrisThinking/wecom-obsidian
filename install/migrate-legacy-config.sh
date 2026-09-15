@@ -3,7 +3,7 @@
 # 从旧版企微桥接迁移配置到 dsh-wecom-obsidian 的设置 namespace
 # ----------------------------------------------------------------------------
 # 迁移来源（旧实现的三处分散配置）：
-#   1. $WECOM_ENV_FILE（0600 的 KEY=VALUE 文件；默认按常见位置自动探测）
+#   1. ${WECOM_ENV_FILE}（0600 的 KEY=VALUE 文件；默认按常见位置自动探测）
 #        → 各机器人的 Bot ID / Secret
 #   2. <obsidian工作区>/config/wecom-bots.json（能力矩阵）
 #        → 会话 id、收藏会话 id、能力开关、放行策略与白名单、独立 cwd/inbox
@@ -50,8 +50,8 @@ say "插件目录     ：$PLUGIN_DIR"
 say "环境文件     ：$WECOM_ENV_FILE"
 say "旧工作区     ：$OBS_WS"
 
-[ -f "$WECOM_ENV_FILE" ] || warn "找不到旧凭证文件 $WECOM_ENV_FILE（可设 WECOM_ENV_FILE 指定）"
-[ -d "$OBS_WS" ] || warn "找不到旧工作区 $OBS_WS（可设 OBS_WORKSPACE 指定）"
+[ -f "$WECOM_ENV_FILE" ] || warn "找不到旧凭证文件 ${WECOM_ENV_FILE}（可设 WECOM_ENV_FILE 指定）"
+[ -d "$OBS_WS" ] || warn "找不到旧工作区 ${OBS_WS}（可设 OBS_WORKSPACE 指定）"
 
 # 把计划交给 node 计算（YAML/JSON 解析用 node 更稳，且不引额外依赖）。
 node - "$PLUGIN_DIR" "$DSH_HOME" "$WECOM_ENV_FILE" "$OBS_WS" "$DRY" <<'NODE'

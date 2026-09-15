@@ -33,7 +33,7 @@ function makeBot(opts = {}) {
   bot.generateReqId = (prefix) => `${prefix}-${++seq}`;
   bot.client = {
     replyStream: async (frame, sid, text, finish) => {
-      calls.push({ sid, text, finish: finish === true });
+      calls.push({ msg: frame && frame.body && frame.body.msgid, sid, text, finish: finish === true });
       return { ok: true };
     },
     downloadFile: async (url, aeskey) => {
@@ -120,6 +120,42 @@ test('handleInbound：replyAck=true 时先回执并复用同一个 streamId', as
     assert.match(replies[0].text, /已收到/);
     assert.equal(replies[0].finish, false);
     assert.equal(replies[0].sid, replies[1].sid, '回执与最终回复应在同一个气泡');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('handleInbound：并发两条消息不会串用回复流 ID（回归）', async () => {
+  const h = makeBot({ replyAck: true });
+  try {
+    h.bot.onMessage = async ({ text }) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return `回复:${text}`;
+    };
+    // 回执慢一点，制造「A 还在 await、B 已经把 lastStreamId 覆盖掉」的窗口
+    const inner = h.bot.client.replyStream;
+    h.bot.client.replyStream = async (frame, sid, text, finish) => {
+      if (finish !== true) await new Promise((resolve) => setTimeout(resolve, 40));
+      return inner(frame, sid, text, finish);
+    };
+
+    await Promise.all([
+      h.bot.handleInbound({ body: { msgid: 'M1' } }, { kind: 'text', text: '#1' }),
+      h.bot.handleInbound({ body: { msgid: 'M2' } }, { kind: 'text', text: '#2' }),
+    ]);
+
+    const finals = h.calls.filter((c) => c.finish === true);
+    const byMsg = (id) => finals.filter((c) => c.msg === id);
+    assert.equal(byMsg('M1').length, 1);
+    assert.equal(byMsg('M2').length, 1);
+    assert.notEqual(byMsg('M1')[0].sid, byMsg('M2')[0].sid,
+      '两条消息的最终回复必须各用各的 streamId');
+    assert.match(byMsg('M1')[0].text, /#1/);
+    assert.match(byMsg('M2')[0].text, /#2/);
+    // 每条消息自己的回执与最终回复要落在同一个气泡里
+    const acks = h.calls.filter((c) => c.finish === false);
+    assert.equal(acks.find((c) => c.msg === 'M1').sid, byMsg('M1')[0].sid);
+    assert.equal(acks.find((c) => c.msg === 'M2').sid, byMsg('M2')[0].sid);
   } finally {
     h.cleanup();
   }

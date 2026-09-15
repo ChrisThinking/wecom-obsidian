@@ -29,7 +29,7 @@ PURGE=0
 say()  { printf '\033[1;36m[uninstall]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 
-[ -d "$PROFILE_DIR" ] || { warn "找不到 Profile 目录 $PROFILE_DIR，跳过 Profile 清理"; }
+[ -d "$PROFILE_DIR" ] || { warn "找不到 Profile 目录 ${PROFILE_DIR}，跳过 Profile 清理"; }
 
 # ── 1/2. Profile 登记 ──────────────────────────────────────────────────────
 if [ -f "$PROFILE_DIR/package.json" ]; then
@@ -60,7 +60,7 @@ if [ "$PURGE" = "1" ]; then
     rm -rf "$DATA_DIR"
   fi
 else
-  say "保留运行时数据：$DATA_DIR（要一并删除请加 --purge）"
+  say "保留运行时数据：${DATA_DIR}（要一并删除请加 --purge）"
 fi
 
 cat <<EOF

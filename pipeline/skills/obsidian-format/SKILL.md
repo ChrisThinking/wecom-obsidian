@@ -11,8 +11,11 @@ description: FORMAT 技能：把 Content Package 标准化为 Note Package（sch
 ## 输入 → 输出契约
 ```
 Content Package（converted/<平台>/<包>/）
-  → Note Package：staging/formatted/<platform>/<name>/
+  → Note Package：staging/formatted/<platform>/<run_id>/<name>/
       <name>.md（frontmatter 键序=schema） + assets/ + source_page.html
+      run_id = <YYYYmmdd_HHMMSS>_<pid>_<随机6位>：**每次 FORMAT 独占一层**，
+      否则同标题的两篇文章会互相覆盖（A 还没入库，B 就把 A 的包删了）。
+      叶子目录仍是 <name> —— STORE 用包目录名作 note 名，不能带随机后缀。
 ```
 - name = 纯标题（清洗：禁符→_、压缩空白、去首尾点空格、上限 120）；与 md 同名。
 - frontmatter 键：`title / type / url / author/ID / platform / published / created / path / read / tags`（无 status；tags: []）。
