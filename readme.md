@@ -1,10 +1,46 @@
-# dsh-wecom-obsidian
+# wecom-obsidian
 
-> **企业微信机器人「收藏网址 → Obsidian」一体化 [DSH](https://github.com/deepseek-ai/deepseek-harness) 插件。**
-> 企微里发一条链接，内容自动抓取、清洗、按 `年/月` 归档进你的 Obsidian 库。
+> **An open-source, agent-powered bridge that turns links shared in WeCom into structured, local-first knowledge in Obsidian.**
+
+**WeCom → AI Agent → Obsidian**
+
+企业微信机器人「收藏网址 → Obsidian」一体化 DSH 插件。  
+在企微中发送一个链接，系统自动完成内容采集、清洗、图片本地化、结构化处理，并归档到你的 Obsidian Vault。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![DSH Plugin](https://img.shields.io/badge/DSH-plugin-5b8def)](https://github.com/deepseek-ai/deepseek-harness)
+
+---
+
+## Why this project
+
+Knowledge shared in messaging platforms is easy to lose.
+
+**wecom-obsidian** connects WeCom, AI agents, web content extraction, and Obsidian into a single automated pipeline:
+
+```text
+WeCom message
+      ↓
+   AI Agent
+      ↓
+Content extraction
+      ↓
+Normalization
+      ↓
+Verification
+      ↓
+ Local assets
+      ↓
+Obsidian Vault
+```
+
+The project is built around three principles:
+
+- **Local-first** — notes and assets remain in your own Obsidian Vault.
+- **Agent-powered** — collection and processing are orchestrated through a dedicated AI agent workflow.
+- **Open and extensible** — the pipeline, storage rules, and integrations are open source and designed to be extended.
+
+The current implementation supports content collection from WeChat articles, Xiaohongshu, Toutiao, and general web pages, with local image storage, deduplication, configurable archive rules, and multiple WeCom bots.
 
 ---
 
@@ -268,6 +304,42 @@ bash install/install.sh    # 重装到本机 Profile（非 ~/.dsh 时先 export 
 - 客户端 bundle 是**手写的 ModuleLoader 格式**，没有构建步骤 —— clone 即可用
 
 > 改代码后请同步更新 `docs/plugin.md` 里对应的说明，并按 `agent.md` 的约定提交 commit。
+
+---
+
+## Project status
+
+**wecom-obsidian** is an early-stage open-source project under active development.
+
+The current implementation is already used in a real-world workflow, while the installation process, tests, documentation, integrations, and contributor experience continue to evolve.
+
+Contributions, bug reports, integration ideas, and documentation improvements are welcome.
+
+---
+
+## Roadmap
+
+Current development priorities include:
+
+- [ ] Expand automated test coverage
+- [ ] Add CI validation for pull requests
+- [ ] Improve failure recovery and observability
+- [ ] Expand supported content sources and compatibility
+- [ ] Add automated dependency and security checks
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
+If you find a bug or have an integration idea, please open an issue.
+
+For code changes, please open a pull request with a short description of the problem, the proposed change, and how the change was tested.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+
+For security-sensitive issues, please see [SECURITY.md](SECURITY.md).
 
 ---
 

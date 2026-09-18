@@ -1,17 +1,29 @@
 {
   "name": "dsh-wecom-obsidian",
   "version": "1.0.0",
-  "description": "企业微信机器人「收藏网址 → Obsidian」一体化 DSH 插件：长连接桥接 + 收藏 Agent/Skill + 采集流水线 + 浏览器配置界面。",
+  "description": "Agent-powered bridge that turns links shared in WeCom into structured, local-first knowledge in Obsidian.",
   "keywords": [
-    "dsh",
-    "deepseek-harness",
-    "cordis",
-    "plugin",
     "wecom",
     "wechat-work",
-    "obsidian"
+    "obsidian",
+    "ai-agent",
+    "automation",
+    "knowledge-management",
+    "local-first",
+    "web-clipping",
+    "knowledge-base",
+    "dsh"
   ],
   "license": "MIT",
+  "author": "ChrisThinking",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChrisThinking/wecom-obsidian.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ChrisThinking/wecom-obsidian/issues"
+  },
+  "homepage": "https://github.com/ChrisThinking/wecom-obsidian#readme",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

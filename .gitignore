@@ -71,4 +71,4 @@ desktop.ini
 # ===== 本插件仓库特有 =====
 # 运行期产物：由插件在 ${DSH_HOME}/wecom-obsidian/ 下生成，不属于源码
 node_modules/
-*.CaseConflict.md
+*CaseConflict.md
