@@ -159,7 +159,7 @@ fi
 
 # ── 6. 必需文件 ─────────────────────────────────────────────────────────────
 head_ "6. 必需文件"
-for f in readme.md LICENSE package.json bundle/cordis.patch.yml bundle/agent/agent.cordis.yml \
+for f in README.md LICENSE package.json bundle/cordis.patch.yml bundle/agent/agent.cordis.yml \
          lib/index.js client/client.js install/install.sh install/uninstall.sh \
          pipeline/scripts/wf_common.py pipeline/scripts/manage/store.py \
          pipeline/skills/acquire/SKILL.md; do

@@ -50,7 +50,7 @@ test('npm pack：真实打包列表必须包含 docs/plugin.md 与入口文件',
     const packed = new Set((parsed[0].files || []).map((row) => row.path));
     for (const required of [
       'docs/plugin.md',
-      'readme.md',
+      'README.md',
       'package.json',
       'lib/index.js',
       'lib/bot-ops.js',

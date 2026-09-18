@@ -16,7 +16,7 @@
   2. 若改了 host 侧代码（`lib/`），需要重启 DSH 才生效；只改 `client/` 由 HMR 热更新。
   3. `git add -A && git commit`，提交信息说明「改了什么 + 为什么」。
   4. 改了影响使用者行为的接口（配置项、路径规则、安装方式）时，
-     同步更新 `readme.md`（使用者向）与 `docs/plugin.md`（实现向）。
+     同步更新 `README.md`（使用者向）与 `docs/plugin.md`（实现向）。
 
 ## 提交信息风格
 
