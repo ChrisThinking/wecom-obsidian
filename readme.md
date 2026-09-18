@@ -141,6 +141,105 @@ DSH_HOME="$DSH_HOME" bash "$PLUGIN_DIR/install/install.sh"
 > 最省事的做法仍然是 clone 一份仓库，然后 `bash install/install.sh`。
 </details>
 
+### 方式三：让 AI 自动安装（复制提示词给 Harness / Codex）
+
+不想自己敲命令：把下面整段**提示词**复制给你的 AI 编码助手（DSH Harness、Codex、Claude Code 等），
+它会自己完成前置检查、clone、安装、重启与自检，并在需要用 Bot 凭证时来问你。
+
+提示词里**不含任何凭证**，Secret 始终只由你在 DSH 设置页填写。
+
+````text
+你在这台机器上替我安装 DSH 插件「wecom-obsidian」（在企微里发链接 → 自动采集、清洗、按年月归档进 Obsidian）。
+请按下面步骤执行；每步先说你要跑什么再跑，需要我提供信息时停下来问我，不要猜、不要臆造。
+
+1) 前置检查（缺任何一项就停下告诉我，不要硬装）
+   - node -v ≥ 18、python3 -V ≥ 3.8（采集流水线必需，缺了只能对话不能收藏）、npm、git 均可用
+   - 确认 DSH 已安装，并确定 DSH_HOME：优先取环境变量 $DSH_HOME；没有就读正在运行的
+     dsh 进程的环境；再没有才是 ~/.dsh。把最终认定值和判断依据告诉我。
+
+2) 安装（幂等，可反复执行）
+   git clone https://github.com/ChrisThinking/wecom-obsidian.git
+   cd wecom-obsidian
+   DSH_HOME=<第 1 步认定值> bash install/install.sh     # 认定值就是 ~/.dsh 时可省略前缀
+   脚本会：装企微长连接 Node 依赖 → 把宿主的 cordis/schemastery 链进来 → 在 Profile
+   （默认 web，可用 DSH_PROFILE 覆盖）登记 bundle → 安装收藏 Agent 预设 → 建运行时目录 →
+   按需装 beautifulsoup4 → 打印依赖预检。
+   退出码非 0 就是**没装成**：把最后 20 行输出贴给我，不要继续下一步。
+
+3) 重启 DSH 让 composition 生效（**这一步先问我**）
+   macOS launchd：launchctl kickstart -k gui/$(id -u)/ai.deepseek.dsh.web
+   其它启动方式：重启你启动 dsh 的那个进程。
+
+4) 自检并把结果告诉我
+   - DSH 日志里应出现一行 [wecom-obsidian] applied
+   - ${DSH_HOME}/wecom-obsidian/health/*.json 是每个机器人的在线状态
+   - 打开 DSH「设置 → 企微 Obsidian 收藏」，确认配置节正常渲染
+
+5) 需要我提供（不要臆造、不要回显、不要写进任何文件或日志）
+   - 机器人名称 / Bot ID / Secret（企微智能机器人后台获取）
+   - Obsidian Vault 库根的绝对路径
+   收齐后由我在设置页填入。
+
+约束：
+- 不要修改仓库源码；不要 git commit / push、不要建分支或 PR。
+- 不要为了绕过审批而切到 danger-full-access、approval=never 之类的提权配置；需要授权就问我。
+- 安装脚本只应写 ${DSH_HOME} 下的 Profile / preset / 数据目录，其它位置不要动。
+- 凭证只存在于 ${DSH_HOME}/settings.yaml：不要打印、不要提交、不要贴进 issue 或日志。
+
+参考：仓库 README.md（快速开始 / 配置 / 排障）与 docs/plugin.md。
+````
+
+<details>
+<summary>English prompt (paste into Codex / Claude Code / any coding agent)</summary>
+
+````text
+Install the DSH plugin "wecom-obsidian" on this machine: it turns links shared in WeCom
+into structured, local-first notes in an Obsidian vault.
+
+Follow these steps, and say what you are about to run before running it.
+
+1) Preconditions — stop and report if anything is missing; do not force the install:
+   - node >= 18, python3 >= 3.8 (required by the collection pipeline), npm, git
+   - DSH installed. Resolve DSH_HOME in this order: the $DSH_HOME environment variable,
+     then the environment of the running dsh process, then ~/.dsh. Tell me which one you
+     concluded, and why.
+
+2) Install (idempotent, safe to re-run):
+   git clone https://github.com/ChrisThinking/wecom-obsidian.git
+   cd wecom-obsidian
+   DSH_HOME=<resolved in step 1> bash install/install.sh     # omit the prefix if it is ~/.dsh
+   The script installs the plugin's Node dependencies, links the host's cordis/schemastery,
+   registers the bundle in the DSH profile (default: web, override with DSH_PROFILE),
+   installs the collector agent preset, creates the runtime directories, installs
+   beautifulsoup4 when needed, and prints a dependency pre-check.
+   A non-zero exit means it did NOT install: paste the last 20 lines to me and stop.
+
+3) Restart DSH so the new composition takes effect (ask me first):
+   macOS launchd: launchctl kickstart -k gui/$(id -u)/ai.deepseek.dsh.web
+   otherwise: restart whichever process runs dsh.
+
+4) Verify and report:
+   - the DSH log should contain a line "[wecom-obsidian] applied"
+   - ${DSH_HOME}/wecom-obsidian/health/*.json holds the per-bot online state
+   - DSH Settings -> "企微 Obsidian 收藏" should render the configuration section
+
+5) Ask me for the values you must not invent, echo, or write to any file or log:
+   - bot name, Bot ID, Secret (from the WeCom bot console)
+   - the absolute path of my Obsidian vault root
+   I will enter them on the settings page myself.
+
+Constraints:
+- Do not modify the repository source; do not commit, push, branch, or open a PR.
+- Do not escalate permissions (danger-full-access, approval=never, ...) just to bypass an
+  approval prompt; ask me instead.
+- The installer should only write under ${DSH_HOME}; do not touch anything else.
+- Credentials live only in ${DSH_HOME}/settings.yaml: never print, commit, or paste them.
+
+Reference: README.md (Quick start / Configuration / Troubleshooting) and docs/plugin.md.
+````
+
+</details>
+
 ### 配置
 
 打开 DSH 设置 → **企微 Obsidian 收藏**。
