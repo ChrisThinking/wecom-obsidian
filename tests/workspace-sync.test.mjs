@@ -133,3 +133,34 @@ test('materialize：清单写入工作区，不落进 config/', () => {
     e.restore();
   }
 });
+
+test('materialize：账本/staging 不进模板清单，也不会被清单清理删掉', () => {
+  // 真实踩过：插件包 pipeline/ 被采集会话同时当工作区用，真实账本落进模板树；
+  // 于是它会被同步进用户工作区（覆盖账本），也可能因「本版模板里没有」被清理。
+  const e = env();
+  try {
+    materialize(e.settings);
+    const manifestPath = path.join(e.workspaceRoot, '.wecom-obsidian-template.json');
+    const ledger = path.join(e.workspaceRoot, 'logs', 'state', 'processed-urls.jsonl');
+    const stale = path.join(e.workspaceRoot, 'scripts', 'legacy_old_script.py');
+    fs.mkdirSync(path.dirname(ledger), { recursive: true });
+    fs.writeFileSync(ledger, '{"url_key":"k"}\n');
+    fs.writeFileSync(stale, '# 上一版存在、这一版已删除\n');
+
+    // 模拟「旧版本清单把日志也登记成模板文件」
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files.push('logs/state/processed-urls.jsonl', 'scripts/legacy_old_script.py');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    materialize(e.settings);
+
+    assert.equal(fs.readFileSync(ledger, 'utf8'), '{"url_key":"k"}\n',
+      '账本绝不能被清单清理删掉');
+    assert.equal(fs.existsSync(stale), false, '真正的模板文件仍应按清单清理');
+    const after = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(after.files.some((f) => f.startsWith('logs/') || f.startsWith('staging/')), false,
+      '用户数据不应再被登记进模板清单');
+  } finally {
+    e.restore();
+  }
+});

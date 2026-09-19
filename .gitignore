@@ -30,6 +30,7 @@ Icon?
 # ===== 日志 / 临时文件 =====
 *.log
 logs/
+staging/
 tmp/
 .tmp/
 *.tmp

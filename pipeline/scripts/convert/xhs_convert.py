@@ -21,11 +21,19 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 CST = datetime.timezone(datetime.timedelta(hours=8))
-UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36')
+# 移动端 UA 优先：桌面 UA 现在会被小红书 302 到 /login 登录墙（见
+# convert/README.md「小红书页面改版（2026-09）」），拿到的是空 noteDetailMap。
+UA_MOBILE = ('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+             'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1')
+UA_DESKTOP = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36')
+#: 笔记页候选 UA（按顺序试）；`UA` 是图片等单次资源请求的默认 UA。
+PAGE_UAS = (('mobile', UA_MOBILE), ('desktop', UA_DESKTOP))
+UA = UA_MOBILE
 # 共享工具：定位工作区根、读取 config/pipeline.json（相对路径按工作区根解析）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common
@@ -35,22 +43,66 @@ def log(msg):
     print(msg, flush=True)
 
 
-def fetch(url, referer='https://www.xiaohongshu.com/', timeout=40, retries=3):
+def http_get(url, ua=None, referer='https://www.xiaohongshu.com/', timeout=40):
+    """单次 GET，返回 `(最终落地 URL, 响应字节)`（urllib 已跟随重定向）。"""
+    req = urllib.request.Request(url, headers={
+        'User-Agent': ua or UA,
+        'Referer': referer,
+        'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
+                   'image/avif,image/webp,image/apng,*/*;q=0.8'),
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.geturl(), resp.read()
+
+
+def fetch(url, referer='https://www.xiaohongshu.com/', timeout=40, retries=3, ua=None):
+    """单次资源抓取（图片等）：失败重试 `retries` 次，全败抛 RuntimeError。"""
     last = None
     for _ in range(retries):
         try:
-            req = urllib.request.Request(url, headers={
-                'User-Agent': UA,
-                'Referer': referer,
-                'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
-                           'image/avif,image/webp,image/apng,*/*;q=0.8'),
-                'Accept-Language': 'zh-CN,zh;q=0.9',
-            })
-            return urllib.request.urlopen(req, timeout=timeout).read()
+            return http_get(url, ua=ua, referer=referer, timeout=timeout)[1]
         except Exception as e:
             last = repr(e)
             time.sleep(2)
     raise RuntimeError('fetch failed: ' + str(last))
+
+
+def is_login_wall(final_url):
+    """小红书把未登录（尤其桌面 UA）的笔记页 302 到 `/login?redirectPath=…`。"""
+    try:
+        return (urllib.parse.urlparse(final_url).path or '').startswith('/login')
+    except Exception:
+        return False
+
+
+def fetch_page(url, timeout=40, retries=3):
+    """抓笔记页：**移动端 UA 优先**，逐个 UA 试；登录墙或请求异常都换下一个。
+
+    桌面 UA 现在恒定吃登录墙（页面里只有空的 __INITIAL_STATE__），因此不能像
+    图片那样「原 UA 重试」——重试多少次都是同一个结果。这里每轮把候选 UA
+    走一遍，整轮都失败才 sleep 后重来。
+
+    @returns {{tuple}} `(final_url, html_bytes)`；全败抛 RuntimeError（含各自原因）。
+    """
+    rounds = max(1, int(retries))
+    last = None
+    for attempt in range(rounds):
+        for label, ua in PAGE_UAS:
+            try:
+                final_url, data = http_get(url, ua=ua, timeout=timeout)
+            except Exception as e:
+                last = '%s（UA=%s）' % (e, label)
+                continue
+            if is_login_wall(final_url):
+                last = '登录墙 %s（UA=%s）' % (final_url, label)
+                continue
+            log('  页面获取成功（UA=%s）: %s' % (label, final_url))
+            return final_url, data
+        if attempt + 1 < rounds:
+            time.sleep(2)
+    raise RuntimeError('页面抓取失败（%d 轮 × %d 个 UA）：%s'
+                       % (rounds, len(PAGE_UAS), last))
 
 
 def sniff(data):
@@ -65,18 +117,35 @@ def sniff(data):
     return 'bin'
 
 
-def parse_note(text):
-    """从页面 __INITIAL_STATE__ 提取笔记；兼容多笔记场景，取 URL 对应的那条。"""
+def parse_state(text):
+    """从页面里取出 `window.__INITIAL_STATE__`（页面用 `undefined` 字面量，需替换）。"""
     i = text.find('window.__INITIAL_STATE__=')
     if i < 0:
         raise RuntimeError('页面中未找到 __INITIAL_STATE__（可能被风控拦截）')
     start = text.find('{', i)
     end = text.find('</script>', start)
-    state = json.loads(text[start:end].replace('undefined', 'null'))
-    nmap = (state.get('note') or {}).get('noteDetailMap') or {}
+    return json.loads(text[start:end].replace('undefined', 'null'))
+
+
+def parse_note(text):
+    """从页面 __INITIAL_STATE__ 提取笔记，兼容两代页面结构。
+
+    - **分享页（2026-09 起，移动端 UA 可得）**：`noteData.data.noteData`
+    - **旧版桌面页（登录态）**：`note.noteDetailMap`，按 `currentNoteId` 取，
+      兼容多笔记场景
+
+    @returns {{tuple}} `(state, note)`
+    """
+    state = parse_state(text)
+    nd = state.get('noteData')
+    if isinstance(nd, dict):
+        inner = (nd.get('data') or {}).get('noteData')
+        if isinstance(inner, dict) and inner:
+            return state, inner
+    wanted = state.get('note') or {}
+    nmap = wanted.get('noteDetailMap') or {}
     if not nmap:
         raise RuntimeError('noteDetailMap 为空，未能取到笔记数据')
-    wanted = state.get('note') or {}
     cur = wanted.get('currentNoteId') or ''
     note = None
     if cur and cur in nmap:
@@ -84,6 +153,25 @@ def parse_note(text):
     if note is None:
         note = list(nmap.values())[0].get('note')
     return state, note
+
+
+def note_author(note):
+    """作者昵称：旧结构 `user.nickname` / 新结构 `user.nickName`。"""
+    user = note.get('user') or {}
+    return user.get('nickname') or user.get('nickName') or ''
+
+
+def image_url(im):
+    """图片真实地址：新结构 `url` / `infoList[].url`，旧结构 `urlDefault`。"""
+    if not isinstance(im, dict):
+        return ''
+    for key in ('urlDefault', 'url'):
+        if im.get(key):
+            return im[key]
+    for item in (im.get('infoList') or []):
+        if isinstance(item, dict) and item.get('url'):
+            return item['url']
+    return ''
 
 
 def slug(s, n=40):
@@ -101,7 +189,7 @@ def download_images(imgs, img_dir):
     results = []
     failed = []
     for idx, im in enumerate(imgs, start=1):
-        u = im.get('urlDefault') or ''
+        u = image_url(im)
         if not u:
             results.append((idx, None, 'no-url'))
             continue
@@ -132,17 +220,8 @@ def main():
     _defs = _common.convert_defaults()
     webp2png = _defs['webp_to_png']
 
-    html = fetch(url_arg)
+    final_url, html = fetch_page(url_arg)
     text = html.decode('utf-8', 'ignore')
-    final_url = text and url_arg  # urllib 跟随跳转，短链已在内部解析
-    # 若输入是短链，先请求一次拿最终落地 URL（用于定位笔记 id）
-    if 'xiaohongshu.com' not in url_arg:
-        try:
-            req = urllib.request.Request(url_arg, headers={'User-Agent': UA})
-            resp = urllib.request.urlopen(req, timeout=30)
-            final_url = resp.geturl()
-        except Exception:
-            pass
     state, note = parse_note(text)
     _t = (note.get('title') or '').strip()
     if not _t:
@@ -152,8 +231,7 @@ def main():
         _first = next((ln.strip() for ln in _desc.split('\n') if ln.strip()), '')
         _t = _first or _desc.strip() or '小红书笔记'
     title = _t
-    user = note.get('user') or {}
-    author = user.get('nickname') or ''
+    author = note_author(note)
     ts_ms = note.get('time')
     pub = ''
     if ts_ms:

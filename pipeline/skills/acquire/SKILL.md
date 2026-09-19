@@ -34,6 +34,12 @@ URL（原始值保留为 source_url）
 - 方案：`scripts/convert/xhs_convert.py` 在 title 缺失时以 **desc 首行**为标题（去空行、trim）；仅 desc 也为空才回退通用名。已在真实短链验证（`xhslink.cn/o/5SvRaFZzj5p` → `Obsidian难上手？这10个ai插件直接开挂！🚀`）。
 - Agent 执行：**不再因标题缺失向用户弹确认**；若仍异常按此自动处理并在 REPORT 标注标题来源（页面 title / desc 首行兜底 / 通用名回退）。
 
+## 已知方案：小红书登录墙 + 页面改版（2026-09 修复）
+- 现象：笔记短链在**桌面 UA** 下一律 302 到 `xiaohongshu.com/login?redirectPath=…`，登录墙页面有 `__INITIAL_STATE__` 但没有 `noteDetailMap` → 旧实现报 `noteDetailMap 为空，未能取到笔记数据`（真实事件：`xhslink.cn/o/1qG1J8J6lI8`，重试 3 次含带 `xsec_token` 直链全部失败）。
+- 诊断要点：**这是 UA 门控，不是「笔记要登录」也不是限流**。同一个链接换移动端 UA 直接拿到笔记页；「重试 / 换 token 直链」都不会好转。
+- 方案（`scripts/convert/xhs_convert.py`）：取页改为**移动端 UA 优先**（`PAGE_UAS`），落地路径 `/login` 即判失败并换下一个 UA，全败才报「登录墙」；解析兼容两代结构（新分享页 `noteData.data.noteData` 与旧桌面页 `note.noteDetailMap`，图片 `url`/`infoList[].url` ↔ `urlDefault`，作者 `user.nickName` ↔ `user.nickname`）。
+- Agent 执行：脚本自身已换 UA + 兼容新结构，**不需要人工绕行（复制正文/截图）**；若脚本报「登录墙」才说明该 UA 也取不到，按失败契约记 ledger `error` 并报告。
+
 ## 常驻能力：微信分享页「图片消息 / 文字消息」（2026-09 起）
 发表记录里并非所有条目都是图文：一部分是**图片消息**（`item_show_type=8`）或**文字消息**（`item_show_type=10`）。微信对这两类只返回分享页（`pages/common_share.html`），页面内**没有 `id="js_content"` 正文 DOM**，因此 `wechat_read_v3.py` 的 article 判定必然失败（报 `captcha/odd page`）——这是**内容类型差异，不是限流，重试无效**。
 
